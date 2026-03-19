@@ -56,3 +56,22 @@ SELECT gr.*
     AND tb_option.use_yn = true
     AND tb_option.store_no = :store_id
   ORDER BY sort_order;
+
+-- 구 데이타 신 store_no로 변경 (매출제외)
+-- a매장: 693, b매장: 875
+DO $$
+    DECLARE
+        a_store_no integer := 693;
+        b_store_no integer := 875;
+    BEGIN
+        UPDATE table_order.user_coupon SET store_no = b_store_no WHERE store_no = a_store_no;
+        UPDATE table_order.user_points SET store_no = b_store_no WHERE store_no = a_store_no;
+        UPDATE table_order.user_stores SET store_no = b_store_no WHERE store_no = a_store_no;
+        UPDATE table_order.subscriptions SET store_no = b_store_no WHERE store_no = a_store_no;
+        UPDATE table_order.payment_methods SET store_no = b_store_no WHERE store_no = a_store_no;
+        UPDATE table_order.payments SET store_no = b_store_no WHERE store_no = a_store_no;
+        UPDATE table_order.point_policy SET store_no = b_store_no WHERE store_no = a_store_no;
+        UPDATE table_order.store_feature SET store_no = b_store_no WHERE store_no = a_store_no;
+        UPDATE table_order.user_visit SET store_no = b_store_no WHERE store_no = a_store_no;
+    END
+$$;
