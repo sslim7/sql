@@ -40,3 +40,17 @@ FROM (
 ) tm693
 WHERE tm875.store_no = 875
   AND REPLACE(tm875.menu_nm, ' ', '') = REPLACE(tm693.menu_nm, ' ', '');
+
+-- 그냥 참고
+  2. 상품 테이블 (tb_store_product) 기준
+
+  SELECT
+    tsp.*,
+    (SELECT img_url
+     FROM public.tb_img
+     WHERE user_no = tsp.product_no
+       AND img_gb_code = 'IM_015'
+       AND use_yn = true
+     ORDER BY img_no DESC
+     LIMIT 1) as "imgUrl"
+  FROM public.tb_store_product tsp

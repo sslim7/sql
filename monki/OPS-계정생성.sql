@@ -1,0 +1,2 @@
+INSERT INTO operations.users (id, email, password, name, active, permissions, is_admin, must_change_password,updated_at)
+VALUES ('cd41ab64-b7ca-4c56-a71a-b20c019bf65f', 'max@monki.net', crypt('kitiwit7!', gen_salt('bf', 12)), '임상석', true, '{}', true, false,now());
