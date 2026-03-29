@@ -142,3 +142,20 @@ SELECT
         FROM sellup.basic_info bi
         JOIN public.tb_store st ON bi.store_no = st.store_no
         LEFT JOIN sellup.apilot_config_store acs on bi.store_no = acs.store_no and acs.is_auto_pilot=true;
+
+        SELECT
+            st.store_no,
+            st.store_nm,
+            concat(st.address, ' ', st.address_detail) AS address
+        FROM public.tb_store st ON bi.store_no = st.store_no
+        WHERE NOT EXISTS (
+            SELECT 1 FROM sellup.basic_info bi
+            WHERE st.store_no = bi.store_no
+        )
+        {search_clause}
+        ORDER BY st.{sort} COLLATE "ko-KR-x-icu" {order}
+        LIMIT :size OFFSET :offset;
+select count(1) from public.tb_store st join public.tb_user_store us on st.store_no=us.store_no and us.use_yn=true where st.use_yn=true;
+
+select * from public.tb_store where store_nm like '%일품%';
+
