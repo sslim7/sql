@@ -1,6 +1,6 @@
 
 -- 테이블 조회
-SELECT gr.*
+SELECT * --gr.*,gd.*
 --          ,
 --       gd.ground_name,
 --          gr.resource_name,
