@@ -1,6 +1,6 @@
 
 -- 테이블 조회
-SELECT gr.*,dv.*
+SELECT gr.*
 --          ,
 --       gd.ground_name,
 --          gr.resource_name,
@@ -11,7 +11,6 @@ SELECT gr.*,dv.*
   FROM pos.tb_ground_resource gr
   JOIN pos.tb_ground gd ON gr.ground_id = gd.ground_id
   LEFT JOIN pos.tb_device_history dh ON gr.resource_id = dh.resource_id
-  LEFT JOIN pos.tb_device dv ON dh.device_id=dv.device_id
   LEFT JOIN pos.tb_device_status ds ON dh.device_id = ds.device_id
   WHERE gd.store_no = :storeNo
     AND gr.deleted_yn = false
