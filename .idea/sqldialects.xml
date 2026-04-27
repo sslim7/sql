@@ -2,7 +2,11 @@
 <project version="4">
   <component name="SqlDialectMappings">
     <file url="file://$PROJECT_DIR$/conomy/locked.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/conomy/구독-빌링.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/conomy/구독-스피드캐쉬.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/conomy/구독-자동청구실패.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/conomy/정산-벨리보너스지급.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/conomy/주문-나의주문리스트.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/conomy/회원-정보(추천인포함)변경.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/monki/매출업-kpi쿼리.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/매출업-seg_query.sql" dialect="PostgreSQL" />
