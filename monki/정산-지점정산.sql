@@ -1,11 +1,20 @@
 
+5/6
+1. 이메일에서 첨부화일 다운로드
+2. ops들어가서 사전체크->
+3. 사전체크 -> 처리중인게 있어서 아래 사전체크 후 쿼리수행
+4. CSV업로드 -> ..... 주문상태
+5. 재집계 -> status=reconciled라서 재집계안됨 (업데이트대상이 없으면 상태도 안바뀐다 ㅠㅠ)
+6. 재집계 -> SELECT * FROM operations.settlement_runs WHERE year_month='2026-04'; 불러서 status=order_updated 변경
+7. 실행판정 -> 다음단계 -> Production쓰기 -> 다음단계 status=order_updated라서 다음단계안됨 recalculated로 변경후 다음단계
+9. 통합관리(https://crew.monki.net admin_id_001 / yes1234) 정산-통합정 정산집등록(시청점)
+10. 완료
+
 https://ops.monthlykitchen.kr/settlements
 주문상태 업데이트 대상이 없으면 status가 바뀌지 않으니 완료후 status로 수정하고 다음단계버튼을 눌러라
 
 2단계: 화면에 파일붙이고 https://adm.smartkds.co.kr/smartcast/jsp/main.jsp mkitchenM/master1234 들어가서 시청점 합계금액을 가져와서 입력
-SELECT *
-  FROM operations.settlement_runs
-  WHERE year_month='2026-04';
+SELECT * FROM operations.settlement_runs WHERE year_month='2026-04';
 
 각 단계가 요구하는 status:
   ┌─────────────────┬───────────────┬────────────────────────────────┐
@@ -118,6 +127,7 @@ LEFT OUTER JOIN public.tb_kitchen k ON k.kitchen_no = s.kitchen_no
 ORDER BY s.store_no ASC
 ;
 
+-- 사전체크 후 처리중인게 있으면 아래쿼리로 업데이트
 /* 먼키앱 처리중 --> 처리완료 order에서 찾기 */
 SELECT count(*) AS cnt
 FROM public.tb_order
