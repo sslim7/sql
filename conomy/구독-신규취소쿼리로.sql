@@ -50,3 +50,4 @@ WHERE mr_top.referrer_user_id = :user_id
   AND sc.status = 2
   AND DATE_FORMAT(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), '%Y-%m') = :ym
 ORDER BY 하위추천인, 일자, 구분;
+

@@ -32,5 +32,12 @@
       <jdbc-url>jdbc:mysql://mk-mysql-ops.cup3zyhjo6fk.ap-northeast-2.rds.amazonaws.com:3306/db_mnwize</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
+    <data-source source="LOCAL" name="monki-dev" uuid="98c9e203-7d11-45d8-af89-e791bbf28dad">
+      <driver-ref>postgresql</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.postgresql.Driver</jdbc-driver>
+      <jdbc-url>jdbc:postgresql://mk.cup3zyhjo6fk.ap-northeast-2.rds.amazonaws.com:5432/monthlyKitchen</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
   </component>
 </project>
