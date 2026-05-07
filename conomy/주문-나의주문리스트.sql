@@ -319,3 +319,54 @@ select * from user where user_id='d9fd6fd9-2b3a-47ed-a82a-43e4bd539cbd';
 
 select * from subs_order_billing where card_number='70280';
 select * from subs_orders where subs_orders_id='de9d3146-79bc-423c-ad8a-d30b3f5648e4';
+
+select * from user where name in ('정희순','박정애','박호순','이윤자','유승덕','박정숙');
+select * from billing_jobs;
+
+select * from user where user_id='d64133a5-03d7-4140-a51b-66a7ee0bcc75';
+select * from withdrawn_users where name='권윤희';
+
+select * from subs_orders where user_id='d64133a5-03d7-4140-a51b-66a7ee0bcc75';
+select * from user where name='하태근';
+select * from subs_orders where user_id='e8d1591c-b168-4401-ba33-26f60be6b015';
+select * from my_referrer where user_id='e8d1591c-b168-4401-ba33-26f60be6b015';
+select * from user where user_id='212d0bca-3da2-4620-81b4-9f42311b1ae7';
+
+SELECT
+                ur.name                                         AS user_name,
+                CONVERT_TZ(ur.created_at, 'UTC', 'Asia/Seoul') AS register,
+                (
+                    SELECT COALESCE(SUM(vp.join_point), 0)
+                    FROM valie_points vp
+                    WHERE vp.user_id = ur.user_id
+                      AND vp.created_at >= CONVERT_TZ(
+                            DATE_SUB(CURDATE(), INTERVAL 2 YEAR),
+                            'Asia/Seoul', 'UTC'
+                          )
+                ) AS v_point,
+                (
+                    SELECT 1000000 - COALESCE(SUM(vai.in_amount - vai.out_amount), 0)
+                    FROM valie_achieve_inout vai
+                    WHERE vai.user_id = ur.user_id
+                      AND vai.created_at >= CONVERT_TZ(
+                            DATE_SUB(CURDATE(), INTERVAL 2 YEAR),
+                            'Asia/Seoul', 'UTC'
+                          )
+                ) AS remain_amount,
+                (
+                    SELECT count(1)
+                    FROM subs_orders so
+                    JOIN subs_order_billing sob
+                        ON so.subs_orders_id = sob.subs_orders_id
+                       AND sob.is_active = 1
+                    WHERE so.user_id = ur.user_id
+                      AND so.is_active = 1
+                ) AS subs_count,
+            (select count(1) from subs_orders so where ur.user_id=so.user_id and so.is_active=2) cancel_cnt
+            FROM my_referrer mr
+            JOIN user ur
+                ON mr.user_id = ur.user_id
+               AND ur.status = 1
+            WHERE mr.referrer_user_id = :user_id
+            ORDER BY ur.name;
+
