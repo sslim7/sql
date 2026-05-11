@@ -35,3 +35,10 @@ where so.is_active=1
 order by so.created_at desc;
 
 select * from subs_order_payment where subs_orders_id="487a3ae5-41a1-48ee-b083-4485cc4eee65";
+
+select * from subs_orders where user_id='b2852cb3-1149-4f41-99d9-f3f680d82346';
+select * from subs_order_billing where subs_orders_id='2d6b8b44-fdac-4959-9059-d88013fc2ca4';
+select * from subs_order_cancel where subs_orders_id='2d6b8b44-fdac-4959-9059-d88013fc2ca4';
+
+
+select * from

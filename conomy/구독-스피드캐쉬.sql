@@ -1,386 +1,231 @@
--- new
-SELECT YEARWEEK(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul'), 3) AS year_week,
-                       DATE_FORMAT(DATE_SUB(DATE(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')) DAY), '%y-%m-%d') AS week_start,
-                       DATE_FORMAT(DATE_ADD(DATE_SUB(DATE(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')) DAY), INTERVAL 6 DAY), '%y-%m-%d') AS week_end,
-                       ur2.user_id referrer_user_id,
-                       CONCAT(any_value(ur2.name),'(',any_value(ur2.phone_no),')') AS referrer,
-                       COUNT(1) AS new_subs_count,
-                       SUM(ss.price) AS new_subs_price,
-                       SUM(so.speed_cash) AS new_speed_cash
+-- 차수 업데이트
+UPDATE
+#     select sop.subs_orders_id,sop.billing_yymm,t.rn from
+        subs_order_payment sop
+JOIN (
+    SELECT subs_order_payment_id,
+           ROW_NUMBER() OVER (
+               PARTITION BY subs_orders_id
+               ORDER BY created_at
+           ) AS rn
+    FROM subs_order_payment
+    WHERE is_success = 1
+) t ON sop.subs_order_payment_id = t.subs_order_payment_id
+SET sop.chasu = t.rn
+WHERE sop.is_success = 0;
+
+
+-- speed_cash list 'all'
+WITH new_subs AS (
+                    SELECT
+                        YEARWEEK(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul'), 3)                    AS year_week,
+                        DATE_FORMAT(DATE_SUB(DATE(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')) DAY), '%y-%m-%d') AS week_start,
+                        DATE_FORMAT(DATE_ADD(DATE_SUB(DATE(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')) DAY), INTERVAL 6 DAY), '%y-%m-%d') AS week_end,
+                        ur2.user_id                                                                   AS referrer_user_id,
+                        ANY_VALUE(ur2.name)    COLLATE utf8mb4_general_ci                             AS referrer_name,
+                        ANY_VALUE(ur2.phone_no) COLLATE utf8mb4_general_ci                            AS referrer_phone,
+                        SUM(case when so.subs_start_date < '2026-05-01'
+                                 then so.speed_cash else truncate(so.speed_cash / 3,0) end
+                        ) AS new_speed_cash
+                    FROM subs_order_payment op
+                    JOIN subs_orders so ON op.subs_orders_id = so.subs_orders_id
+                    JOIN subs ss         ON so.subs_id = ss.subs_id
+                    JOIN user ur         ON so.user_id = ur.user_id
+                    JOIN my_referrer mr  ON so.user_id = mr.user_id
+                    JOIN user ur2        ON mr.referrer_user_id = ur2.user_id
+                    WHERE op.is_success = 1
+                      AND YEARWEEK(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul'), 3) = :base_yearweek
+                      AND ((so.subs_start_date >= '2026-05-01' and op.chasu in (1,2,3)) OR
+                          ((so.subs_start_date < '2026-05-01') and op.chasu in (1)))
+                    GROUP BY 1, 2, 3, 4
+                ),
+                cancel_subs AS (
+                    SELECT
+                        YEARWEEK(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), 3)                    AS year_week,
+                        DATE_FORMAT(DATE_SUB(DATE(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')) DAY), '%y-%m-%d') AS week_start,
+                        DATE_FORMAT(DATE_ADD(DATE_SUB(DATE(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')) DAY), INTERVAL 6 DAY), '%y-%m-%d') AS week_end,
+                        ur2.user_id                                                                   AS referrer_user_id,
+                        ANY_VALUE(ur2.name)    COLLATE utf8mb4_general_ci                             AS referrer_name,
+                        ANY_VALUE(ur2.phone_no) COLLATE utf8mb4_general_ci                            AS referrer_phone,
+                        TRUNCATE(
+                                SUM(
+                                    CASE
+                                        -- ✅ 5/1 이후
+                                        WHEN so.subs_start_date >= '2026-05-01' THEN
+                                            CASE
+                                                -- 1개월 이내: 실제 지급액 전액 환불
+                                                WHEN sc.updated_at < so.created_at + INTERVAL 1 MONTH
+                                                THEN TRUNCATE(so.speed_cash / 3, 0)
+                                                   * (SELECT COUNT(1) FROM subs_order_payment sop
+                                                      WHERE sop.subs_orders_id = sc.subs_orders_id
+                                                        AND sop.is_success = 1)
+                                                -- 1개월 이후: 실제 지급액에서 paid_count/12 빼고 환불
+                                                ELSE
+                                                    TRUNCATE(so.speed_cash / 3, 0)
+                                                    * (SELECT COUNT(1) FROM subs_order_payment sop
+                                                       WHERE sop.subs_orders_id = sc.subs_orders_id
+                                                         AND sop.is_success = 1)
+                                                    * (12 - (SELECT COUNT(1) FROM subs_order_payment sop
+                                                             WHERE sop.subs_orders_id = sc.subs_orders_id
+                                                               AND sop.is_success = 1))
+                                                    / 12
+                                            END
+
+                                        -- ✅ 5/1 이전: 기존 그대로
+                                        ELSE
+                                            CASE
+                                                WHEN sc.updated_at < so.created_at + INTERVAL 1 MONTH
+                                                THEN so.speed_cash
+                                                ELSE so.speed_cash
+                                                   - so.speed_cash
+                                                   * (SELECT COUNT(1) FROM subs_order_payment sop
+                                                      WHERE sop.subs_orders_id = sc.subs_orders_id
+                                                        AND sop.is_success = 1) / 12
+                                            END
+                                    END
+                                ), 0
+                            ) AS return_speed_cash
+                    FROM subs_order_cancel sc
+                    JOIN subs_orders so ON sc.subs_orders_id = so.subs_orders_id AND so.speed_cash <> 0
+                    JOIN subs ss         ON so.subs_id = ss.subs_id
+                    JOIN user ur         ON so.user_id = ur.user_id
+                    JOIN my_referrer mr  ON so.user_id = mr.user_id
+                    JOIN user ur2        ON mr.referrer_user_id = ur2.user_id
+                    WHERE sc.status = 2
+                      AND YEARWEEK(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), 3) = :base_yearweek
+                    GROUP BY 1, 2, 3, 4
+                )
+                SELECT
+                    n.year_week,
+                    n.week_start,
+                    n.week_end,
+                    n.referrer_user_id,
+                    CONCAT(
+                        COALESCE(
+                            DATE_FORMAT(
+                                (SELECT CONVERT_TZ(so2.created_at, 'UTC', 'Asia/Seoul')
+                                 FROM subs_orders so2
+                                 WHERE so2.user_id = n.referrer_user_id
+                                   AND so2.is_active = 1
+                                 ORDER BY so2.created_at
+                                 LIMIT 1),
+                                '%m/%d '
+                            ),
+                            ''
+                        ),
+                        n.referrer_name
+                    )                                                                                 AS referrer_name,
+                    n.referrer_phone,
+                    COALESCE(n.new_speed_cash, 0)                                                     AS speed_cash,
+                    COALESCE(c.return_speed_cash, 0)                                                  AS return_speed_cash,
+                    COALESCE(n.new_speed_cash, 0) - COALESCE(c.return_speed_cash, 0)                 AS final_speed_cash,
+                    si.birth_date,
+                    si.rrn_back,
+                    si.bank_code,
+                    b.name                                                                            AS bank_name,
+                    si.account_number,
+                    si.account_holder
+                FROM new_subs n
+                LEFT JOIN cancel_subs c
+                       ON n.year_week = c.year_week
+                      AND n.referrer_user_id = c.referrer_user_id
+                LEFT JOIN seller_info si ON si.user_id = n.referrer_user_id
+                LEFT JOIN bank b          ON b.bank_code = si.bank_code
+
+                UNION ALL
+
+                SELECT
+                    c.year_week,
+                    c.week_start,
+                    c.week_end,
+                    c.referrer_user_id,
+                    CONCAT(
+                        COALESCE(
+                            DATE_FORMAT(
+                                (SELECT CONVERT_TZ(so2.created_at, 'UTC', 'Asia/Seoul')
+                                 FROM subs_orders so2
+                                 WHERE so2.user_id = c.referrer_user_id
+                                   AND so2.is_active = 1
+                                 ORDER BY so2.created_at
+                                 LIMIT 1),
+                                '%m/%d '
+                            ),
+                            ''
+                        ),
+                        c.referrer_name
+                    )                                                                                 AS referrer_name,
+                    c.referrer_phone,
+                    0                                                                                 AS speed_cash,
+                    c.return_speed_cash                                                               AS return_speed_cash,
+                    0 - c.return_speed_cash                                                           AS final_speed_cash,
+                    si.birth_date,
+                    si.rrn_back,
+                    si.bank_code,
+                    b.name                                                                            AS bank_name,
+                    si.account_number,
+                    si.account_holder
+                FROM cancel_subs c
+                LEFT JOIN new_subs n
+                       ON c.year_week = n.year_week
+                      AND c.referrer_user_id = n.referrer_user_id
+                LEFT JOIN seller_info si ON si.user_id = c.referrer_user_id
+                LEFT JOIN bank b          ON b.bank_code = si.bank_code
+                WHERE n.referrer_user_id IS NULL
+
+                ORDER BY year_week DESC, referrer_name
+;
+
+# Speed_Cash 상세 - New
+SELECT DATE_FORMAT(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul'), '%y-%m-%d %H:%i') AS payment_time,
+                       CONCAT(ur.name,'(',ur.user_id,')') AS user,
+                       ss.name,
+                       ss.price,
+                       case when so.created_at > '2026-05-01' then truncate(so.speed_cash / 3,0) else so.speed_cash end speed_cash,
+                       CONCAT(ur2.name,'(',ur2.user_id,')') AS referrer,
+                       op.subs_order_payment_id, op.chasu
                   FROM subs_order_payment op
                   JOIN subs_orders so ON op.subs_orders_id=so.subs_orders_id
                   JOIN subs ss ON so.subs_id=ss.subs_id
                   JOIN user ur ON so.user_id=ur.user_id
-                  JOIN my_referrer mr ON so.user_id=mr.user_id
-                  JOIN user ur2 ON mr.referrer_user_id=ur2.user_id
-                 WHERE op.is_success=1
-                   AND LEFT(op.created_at,10)=so.subs_start_date
-                   AND LEFT(YEARWEEK(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul'), 3),4) = :base_year
-                 GROUP BY 1,2,3,4
-                 ORDER BY year_week DESC, referrer;
-
--- cancel
-SELECT YEARWEEK(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), 3) AS year_week,
-                       DATE_FORMAT(DATE_SUB(DATE(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')) DAY), '%y-%m-%d') AS week_start,
-                       DATE_FORMAT(DATE_ADD(DATE_SUB(DATE(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')) DAY), INTERVAL 6 DAY), '%y-%m-%d') AS week_end,
-                       ur2.user_id referrer_user_id,
-                       CONCAT(any_value(ur2.name),'(',any_value(ur2.phone_no),')') AS referrer,
-                       COUNT(1) AS cancel_subs_count,
-                       SUM(ss.price) AS cancel_subs_price,
-                       SUM(so.speed_cash) AS paid_speed_cash,
-                       TRUNCATE(SUM(so.speed_cash) - SUM(so.speed_cash * (SELECT COUNT(1) FROM subs_order_payment sop
-                                                                          WHERE sc.subs_orders_id=sop.subs_orders_id and sop.is_success=1) / 12),0) AS return_speed_cash,
-                       SUM((SELECT COUNT(1) FROM subs_order_payment sop WHERE sc.subs_orders_id=sop.subs_orders_id)) AS received_cnt
-                  FROM subs_order_cancel sc
-                  JOIN subs_orders so ON sc.subs_orders_id=so.subs_orders_id AND so.speed_cash <> 0
-                  JOIN subs ss ON so.subs_id=ss.subs_id
-                  JOIN user ur ON so.user_id=ur.user_id
-                  JOIN my_referrer mr ON so.user_id=mr.user_id
-                  JOIN user ur2 ON mr.referrer_user_id=ur2.user_id
-                 WHERE sc.status=2
-                   AND LEFT(YEARWEEK(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), 3),4) = :base_year
-                 GROUP BY 1,2,3,4
-                 ORDER BY year_week DESC, referrer
-;
-
-주차(year_week), 기간()
-year_week,week_start,week_end,referrer_user_id,referrer,new_subs_count,new_subs_price,speed_cash
-
-week_end,referrer_user_id,referrer,cancel_subs_count,cancel_subs_price,paid_speed_cash,return_speed_cash,received_cnt
-
-new의
-year_week,week_start,week_end,referrer_user_id,referrer,speed_cash,return_speed_cash,speed_cash-return_speed_cash AS set_speed_cash
-cancel의
-
-
-
-
--- 동일카드 사용자
-select so.user_id 구독자ID,ur.name 구독자명,
-       ur2.user_id 추천자ID,ur2.name 추천자명,
-       bl.card_company,bl.card_number,
-       count(1)
-  from subs_order_billing bl
-  join subs_orders so on bl.subs_orders_id=so.subs_orders_id and so.is_active=1
-  join user ur on so.user_id=ur.user_id
-  join my_referrer mr on ur.user_id=mr.user_id
-  join user ur2 on mr.referrer_user_id=ur2.user_id
-         where bl.is_active=1
-         group by 1,2,3,4,5,6
-        having count(1) > 1;
-
-
--- 동일카드 사용자
-select so.user_id 구독자ID,ur.name 구독자명,ur.phone_no 구독자전화,
-       ur2.user_id 추천인ID,ur2.name 추천인명,ur2.phone_no 추천인전화,
-       sob.card_company 카드, sob.card_number 카드번호, CONVERT_TZ(so.created_at,'UTC','Asia/Seoul')
-from subs_order_billing sob
-join (select
---     so.user_id 구독자ID,ur.name 구독자명,
-#        ur2.user_id 추천자ID,ur2.name 추천자명,
-bl.card_company,
-bl.card_number,
-count(1)
-               from subs_order_billing bl
-                        join subs_orders so on bl.subs_orders_id = so.subs_orders_id and so.is_active = 1
-                        join user ur on so.user_id = ur.user_id
-                        join my_referrer mr on ur.user_id = mr.user_id
-                        join user ur2 on mr.referrer_user_id = ur2.user_id
-               where bl.is_active = 1
-               group by 1, 2
-#                 ,3,4
-               having count(1) > 1
-               ) aa on sob.card_company=aa.card_company and sob.card_number=aa.card_number
-join subs_orders so on sob.subs_orders_id=so.subs_orders_id
-join user ur on so.user_id=ur.user_id
-join my_referrer mr on ur.user_id=mr.user_id
-join user ur2 on mr.referrer_user_id=ur2.user_id
-order by 카드,카드번호,추천인명
-;
-
-select sob.card_company,sob.card_number,ur.name 구독자,ur2.name 추천자
-    from subs_order_billing sob
-    join subs_orders so on so.subs_orders_id=sob.subs_orders_id and so.is_active=1
-    join user ur on so.user_id=ur.user_id
-    join my_referrer mr on ur.user_id=mr.user_id
-    join user ur2 on mr.referrer_user_id=ur2.user_id
-   where card_company='[삼성]' and card_number='7265'
-;
-
-select * from subs_order_billing order by created_at desc;
-
--- 스피드캐쉬 (query_type=all)
-WITH new_subs AS (
-    SELECT
-        YEARWEEK(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul'), 3)                    AS year_week,
-        DATE_FORMAT(DATE_SUB(DATE(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')) DAY), '%y-%m-%d') AS week_start,
-        DATE_FORMAT(DATE_ADD(DATE_SUB(DATE(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')) DAY), INTERVAL 6 DAY), '%y-%m-%d') AS week_end,
-        ur2.user_id                                                                   AS referrer_user_id,
-        ANY_VALUE(ur2.name)    COLLATE utf8mb4_general_ci                             AS referrer_name,
-        ANY_VALUE(ur2.phone_no) COLLATE utf8mb4_general_ci                            AS referrer_phone,
-        SUM(so.speed_cash)                                                            AS new_speed_cash
-    FROM subs_order_payment op
-    JOIN subs_orders so ON op.subs_orders_id = so.subs_orders_id
-    JOIN subs ss         ON so.subs_id = ss.subs_id
-    JOIN user ur         ON so.user_id = ur.user_id
-    JOIN my_referrer mr  ON so.user_id = mr.user_id
-    JOIN user ur2        ON mr.referrer_user_id = ur2.user_id
-    WHERE op.is_success = 1
-      AND LEFT(op.created_at, 10) = so.subs_start_date
-      AND YEARWEEK(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul'), 3) = :base_yearweek
-    GROUP BY 1, 2, 3, 4
-),
-cancel_subs AS (
-    SELECT
-        YEARWEEK(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), 3)                    AS year_week,
-        DATE_FORMAT(DATE_SUB(DATE(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')) DAY), '%y-%m-%d') AS week_start,
-        DATE_FORMAT(DATE_ADD(DATE_SUB(DATE(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')) DAY), INTERVAL 6 DAY), '%y-%m-%d') AS week_end,
-        ur2.user_id                                                                   AS referrer_user_id,
-        ANY_VALUE(ur2.name)    COLLATE utf8mb4_general_ci                             AS referrer_name,
-        ANY_VALUE(ur2.phone_no) COLLATE utf8mb4_general_ci                            AS referrer_phone,
-                TRUNCATE(
-            SUM(
-                CASE
-                    WHEN YEARWEEK(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), 3)
-                       = YEARWEEK(CONVERT_TZ(so.created_at,'UTC','Asia/Seoul'), 3)
-                    THEN so.speed_cash
-                    ELSE so.speed_cash
-                       - so.speed_cash
-                       * (SELECT COUNT(1) FROM subs_order_payment sop
-                          WHERE sc.subs_orders_id = sop.subs_orders_id AND sop.is_success = 1) / 12
-                END
-            ), 0
-        )                                                                             AS return_speed_cash
-    FROM subs_order_cancel sc
-    JOIN subs_orders so ON sc.subs_orders_id = so.subs_orders_id AND so.speed_cash <> 0
-    JOIN subs ss         ON so.subs_id = ss.subs_id
-    JOIN user ur         ON so.user_id = ur.user_id
-    JOIN my_referrer mr  ON so.user_id = mr.user_id
-    JOIN user ur2        ON mr.referrer_user_id = ur2.user_id
-    WHERE sc.status = 2
-      AND YEARWEEK(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), 3) = :base_yearweek
-    GROUP BY 1, 2, 3, 4
-)
-
--- new 기준 (cancel 없을 수 있음)
-SELECT
-    n.year_week,
-    n.week_start,
-    n.week_end,
-    n.referrer_user_id,
-    n.referrer_name,
-    n.referrer_phone,
-    COALESCE(n.new_speed_cash, 0)                                                     AS speed_cash,
-    COALESCE(c.return_speed_cash, 0)                                                  AS return_speed_cash,
-    COALESCE(n.new_speed_cash, 0) - COALESCE(c.return_speed_cash, 0)                 AS final_speed_cash
-FROM new_subs n
-LEFT JOIN cancel_subs c
-       ON n.year_week = c.year_week
-      AND n.referrer_user_id = c.referrer_user_id
-
-UNION ALL
-
--- cancel 기준 (new 없는 경우만)
-SELECT
-    c.year_week,
-    c.week_start,
-    c.week_end,
-    c.referrer_user_id,
-    c.referrer_name,
-    c.referrer_phone,
-    0                                                                                 AS speed_cash,
-    c.return_speed_cash                                                               AS return_speed_cash,
-    0 - c.return_speed_cash                                                           AS final_speed_cash
-FROM cancel_subs c
-LEFT JOIN new_subs n
-       ON c.year_week = n.year_week
-      AND c.referrer_user_id = n.referrer_user_id
-WHERE n.referrer_user_id IS NULL
-
-ORDER BY year_week DESC, referrer_name
-;
-
-select * from subs_order_billing order by created_at;
-
--- 한카드가 여러명이 사용할수없게
-select count(1) from subs_order_billing sob
-    join subs_orders so on sob.subs_orders_id=so.subs_orders_id and so.user_id <> 'e81f77af-357d-4cac-8e69-2dffd028b4a4'
-         where sob.card_number='9842' and sob.birth='880730'
-;
-
-
-SELECT DATE_FORMAT(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), '%y-%m-%d %H:%i') AS approved_dt,
-                       DATE_FORMAT(CONVERT_TZ(sc.created_at,'UTC','Asia/Seoul'), '%y-%m-%d %H:%i') AS request_dt,
-                       DATE_FORMAT(CONVERT_TZ(so.created_at,'UTC','Asia/Seoul'), '%y-%m-%d %H:%i') AS subs_dt,
-                       CONCAT(ur.name,'(',ur.user_id,')') AS user,
-                       ss.name,
-                       ss.price,
-                       so.speed_cash,
-                       (SELECT COUNT(1) FROM subs_order_payment sop WHERE sc.subs_orders_id=sop.subs_orders_id) AS received_count,
-                       CONCAT(ur2.name,'(',ur2.user_id,')') AS referrer,
-                       sc.subs_orders_id
-                  FROM subs_order_cancel sc
-                  JOIN subs_orders so ON sc.subs_orders_id=so.subs_orders_id
-                  JOIN subs ss ON so.subs_id=ss.subs_id
-                  JOIN user ur ON so.user_id=ur.user_id
                   JOIN my_referrer mr ON so.user_id=mr.user_id AND mr.referrer_user_id = :referrer_user_id
                   JOIN user ur2 ON mr.referrer_user_id=ur2.user_id
-                 WHERE YEARWEEK(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), 3) = :year_week
-                 ORDER BY sc.updated_at DESC;
-
-select * from subs_orders where user_id='2c6dfb16-a8a5-486c-bc67-d7207c9c95ed';
-select * from subs_order_payment where subs_orders_id='4d9e4aaa-2c41-40f5-8c52-eac370ba9ddb';
-select * from subs_order_cancel where subs_orders_id in (
-    'a917f1e1-de74-4fa6-b143-2de83fb3c283' )
+                 WHERE YEARWEEK(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul'), 3) = :year_week
+                   and op.is_success=1
+                   and ((so.subs_start_date >= '2026-05-01' and op.chasu in (1,2,3)) OR
+                        ((so.subs_start_date < '2026-05-01') and op.chasu in (1)))
+                 ORDER BY op.created_at DESC
 ;
 
-select * from subs_order_cancel sc join conomy.subs_orders so on sc.subs_orders_id=so.subs_orders_id where sc.status=9;
-select * from subs_order_cancel where subs_orders_id='';
-select subs_orders_id from subs_order_cancel group by subs_orders_id having count(1) > 1;
+# Speed_Cash 상세 - cancel
+select *,
+       case when ttt.subs_start_date < '2026-05-01' then ttt.speed_cash else truncate(ttt.speed_cash / 3 * ttt.chasu,0) end paid_cash
+  from
+     (SELECT DATE_FORMAT(CONVERT_TZ(sc.updated_at, 'UTC', 'Asia/Seoul'), '%y-%m-%d %H:%i') AS approved_dt,
+              DATE_FORMAT(CONVERT_TZ(sc.created_at, 'UTC', 'Asia/Seoul'), '%y-%m-%d %H:%i') AS request_dt,
+              DATE_FORMAT(CONVERT_TZ(so.created_at, 'UTC', 'Asia/Seoul'), '%y-%m-%d %H:%i') AS subs_dt,
+              CONCAT(ur.name, '(', ur.user_id, ')')                                         AS user,
+              ss.name,
+              ss.price,
+              so.speed_cash,
+              (SELECT sop.chasu
+               FROM subs_order_payment sop
+               WHERE sc.subs_orders_id = sop.subs_orders_id
+                 and sop.is_success = 1
+               order by sop.created_at desc
+               limit 1)                                                                     AS chasu,
+              CONCAT(ur2.name, '(', ur2.user_id, ')')                                       AS referrer,
+              sc.subs_orders_id,
+              so.subs_start_date
+       FROM subs_order_cancel sc
+                JOIN subs_orders so ON sc.subs_orders_id = so.subs_orders_id
+                JOIN subs ss ON so.subs_id = ss.subs_id
+                JOIN user ur ON so.user_id = ur.user_id
+                JOIN my_referrer mr ON so.user_id = mr.user_id AND mr.referrer_user_id = :referrer_user_id
+                JOIN user ur2 ON mr.referrer_user_id = ur2.user_id
+       WHERE YEARWEEK(CONVERT_TZ(sc.updated_at, 'UTC', 'Asia/Seoul'), 3) = :year_week
+       ORDER BY sc.updated_at DESC) ttt
+;
 
-select * from user where name='옥영수';
-
-WITH new_subs AS (
-    SELECT
-        YEARWEEK(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul'), 3)                    AS year_week,
-        DATE_FORMAT(DATE_SUB(DATE(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')) DAY), '%y-%m-%d') AS week_start,
-        DATE_FORMAT(DATE_ADD(DATE_SUB(DATE(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul')) DAY), INTERVAL 6 DAY), '%y-%m-%d') AS week_end,
-        ur2.user_id                                                                   AS referrer_user_id,
-        ANY_VALUE(ur2.name)    COLLATE utf8mb4_general_ci                             AS referrer_name,
-        ANY_VALUE(ur2.phone_no) COLLATE utf8mb4_general_ci                            AS referrer_phone,
-        SUM(so.speed_cash)                                                            AS new_speed_cash
-    FROM subs_order_payment op
-    JOIN subs_orders so ON op.subs_orders_id = so.subs_orders_id
-    JOIN subs ss         ON so.subs_id = ss.subs_id
-    JOIN user ur         ON so.user_id = ur.user_id
-    JOIN my_referrer mr  ON so.user_id = mr.user_id
-    JOIN user ur2        ON mr.referrer_user_id = ur2.user_id
-    WHERE op.is_success = 1
-      AND LEFT(op.created_at, 10) = so.subs_start_date
-      AND YEARWEEK(CONVERT_TZ(op.created_at,'UTC','Asia/Seoul'), 3) = :base_yearweek
-    GROUP BY 1, 2, 3, 4
-),
-cancel_subs AS (
-    SELECT
-        YEARWEEK(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), 3)                    AS year_week,
-        DATE_FORMAT(DATE_SUB(DATE(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')) DAY), '%y-%m-%d') AS week_start,
-        DATE_FORMAT(DATE_ADD(DATE_SUB(DATE(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')), INTERVAL WEEKDAY(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul')) DAY), INTERVAL 6 DAY), '%y-%m-%d') AS week_end,
-        ur2.user_id                                                                   AS referrer_user_id,
-        ANY_VALUE(ur2.name)    COLLATE utf8mb4_general_ci                             AS referrer_name,
-        ANY_VALUE(ur2.phone_no) COLLATE utf8mb4_general_ci                            AS referrer_phone,
-        TRUNCATE(
-            SUM(
-                CASE
-                    WHEN sc.updated_at < so.created_at + INTERVAL 1 MONTH
-                    THEN so.speed_cash
-                    ELSE so.speed_cash
-                       - so.speed_cash
-                       * (SELECT COUNT(1) FROM subs_order_payment sop
-                          WHERE sc.subs_orders_id = sop.subs_orders_id AND sop.is_success = 1) / 12
-                END
-            ), 0
-        )                                                                              AS return_speed_cash
-    FROM subs_order_cancel sc
-    JOIN subs_orders so ON sc.subs_orders_id = so.subs_orders_id AND so.speed_cash <> 0
-    JOIN subs ss         ON so.subs_id = ss.subs_id
-    JOIN user ur         ON so.user_id = ur.user_id
-    JOIN my_referrer mr  ON so.user_id = mr.user_id
-    JOIN user ur2        ON mr.referrer_user_id = ur2.user_id
-    WHERE sc.status = 2
-      AND YEARWEEK(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), 3) = :base_yearweek
-    GROUP BY 1, 2, 3, 4
-)
-SELECT
-    n.year_week,
-    n.week_start,
-    n.week_end,
-    n.referrer_user_id,
-    CONCAT(
-        COALESCE(
-            DATE_FORMAT(
-                (SELECT CONVERT_TZ(so2.created_at, 'UTC', 'Asia/Seoul')
-                 FROM subs_orders so2
-                 WHERE so2.user_id = n.referrer_user_id
-                   AND so2.is_active = 1
-                 ORDER BY so2.created_at
-                 LIMIT 1),
-                '%m/%d '
-            ),
-            ''
-        ),
-        n.referrer_name
-    )                                                                                 AS referrer_name,
-    n.referrer_phone,
-    COALESCE(n.new_speed_cash, 0)                                                     AS speed_cash,
-    COALESCE(c.return_speed_cash, 0)                                                  AS return_speed_cash,
-    COALESCE(n.new_speed_cash, 0) - COALESCE(c.return_speed_cash, 0)                 AS final_speed_cash
-FROM new_subs n
-LEFT JOIN cancel_subs c
-       ON n.year_week = c.year_week
-      AND n.referrer_user_id = c.referrer_user_id
-
-UNION ALL
-
-SELECT
-    c.year_week,
-    c.week_start,
-    c.week_end,
-    c.referrer_user_id,
-    CONCAT(
-        COALESCE(
-            DATE_FORMAT(
-                (SELECT CONVERT_TZ(so2.created_at, 'UTC', 'Asia/Seoul')
-                 FROM subs_orders so2
-                 WHERE so2.user_id = c.referrer_user_id
-                   AND so2.is_active = 1
-                 ORDER BY so2.created_at
-                 LIMIT 1),
-                '%m/%d '
-            ),
-            ''
-        ),
-        c.referrer_name
-    )                                                                                 AS referrer_name,
-    c.referrer_phone,
-    0                                                                                 AS speed_cash,
-    c.return_speed_cash                                                               AS return_speed_cash,
-    0 - c.return_speed_cash                                                           AS final_speed_cash
-FROM cancel_subs c
-LEFT JOIN new_subs n
-       ON c.year_week = n.year_week
-      AND c.referrer_user_id = n.referrer_user_id
-WHERE n.referrer_user_id IS NULL
-
-ORDER BY year_week DESC, referrer_name;
-
-select * from subs_order_cancel;
-select * from subs_order_payment;
-select * from order_payment;
-select * from subs_orders;
-select * from subs_order_billing;
-
-alter table subs_order_payment add column payment_key varchar(100);
-
-select * from order_cancel;
-
-select * from user where user_id='a761a422-5503-4666-a6e5-763d636546c2';
-
-select * from orders where subs_order_id='2336f0fb-ca74-4702-ac9b-d60708c32c36';
-select * from order_items where order_id='a4eb2731-3210-4afd-8dc2-799e70cf4a64';
-
-select * from subs_orders where user_id='91c58f1a-a926-40f6-b828-c71395becbb5';
-select * from subs_order_billing where subs_orders_id='2336f0fb-ca74-4702-ac9b-d60708c32c36';
-select * from subs_order_payment sop
-         join orders od on sop.subs_orders_id=od.subs_order_id and od.order_status in (1,2)
-         join order_items oi on od.order_id=oi.order_id and oi.order_status in (1,2)
-         where sop.subs_orders_id='2336f0fb-ca74-4702-ac9b-d60708c32c36'
-           and sop.is_success=1 and sop.payment_key is not null
-         order by sop.billing_yymm desc limit 1;
-
--- 2026-04-04 02:00:07.717620
-select * from subs_orders where subs_orders_id='2336f0fb-ca74-4702-ac9b-d60708c32c36';
-select * from subs_order_cancel where subs_orders_id='f836e32d-17f4-466b-9755-4d9770056e70';
-
-select * from subs_orders where user_id='7ae3629c-eef6-4152-96dc-a70a1545615f';
-
-select * from bank;
+select * from subs;
+select * from user where user_id='ddaa1fda-a6b8-44fa-80fb-42583882c651';
+select * from subs_order_payment where is_success=1 and chasu=0;
