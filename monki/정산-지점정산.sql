@@ -9,6 +9,7 @@
 7. 실행판정 -> 다음단계 -> Production쓰기 -> 다음단계 status=order_updated라서 다음단계안됨 recalculated로 변경후 다음단계
 9. 통합관리(https://crew.monki.net admin_id_001 / yes1234) 정산-통합정 정산집등록(시청점)
 10. 완료
+11. 마지막에 있는 키오스크 주문수수료 + 먼키앱(포장제외 홀주문) 주문수수료 조회 쿼리실행하여 리스트 전달
 
 https://ops.monthlykitchen.kr/settlements
 주문상태 업데이트 대상이 없으면 status가 바뀌지 않으니 완료후 status로 수정하고 다음단계버튼을 눌러라
@@ -282,6 +283,45 @@ SELECT *
     AND order_date BETWEEN '2026-04-01' AND '2026-04-30'
     AND (alloc_status IS NULL OR alloc_status != 'ALS_008');
 
--- recalculated --> reconciled
+-- 키오스크 주문수수료 + 먼키앱(포장제외 홀주문) 주문수수료 조회
+select DISTINCT(acc_no)
+  from sales.tb_accounts2_order
+ where order_date > '2026-04-01 00:00:00'  and order_date < '2026-05-01 00:00:00'
+ order by acc_no asc;
 
---
+-- 위에서 조회한 acc_no로 수정
+SELECT x2.store_no AS "매장번호"
+  , s.store_nm AS "매장명"
+  , x2.store_price_sum AS "판매정산금"
+  , x2.acc_order_fee_sum AS "주문중개수수료"
+FROM (
+  SELECT x.store_no
+    , sum(x.store_price) AS store_price_sum
+    , sum(x.acc_order_fee) AS acc_order_fee_sum
+  FROM (
+	SELECT ao.store_no
+      , m1.account_amt AS store_price
+      , m2.account_amt AS acc_order_fee
+	FROM sales.tb_accounts2_order ao
+	JOIN public.tb_order o ON o.order_no = ao.order_no
+	LEFT OUTER JOIN sales.tb_accounts2_order_item m1 ON m1.acc_no = ao.acc_no AND m1.store_no = ao.store_no AND m1.order_no = ao.order_no AND m1.acc_order_type = 'ACOT_001' AND m1.order_account_type = 'ODAT_012' /*판매정산금*/
+	LEFT OUTER JOIN  sales.tb_accounts2_order_item m2 ON m2.acc_no = ao.acc_no AND m2.store_no = ao.store_no AND m2.order_no = ao.order_no AND m1.acc_order_type = 'ACOT_001' AND m2.order_account_type = 'ODAT_002' /*주문수수료*/
+	WHERE ao.acc_no = ${acc_no}
+	AND ao.acc_order_type = 'ACOT_001' /*먼키앱주문*/
+	AND EXISTS (SELECT 1 FROM public.tb_store t WHERE t.kitchen_no = 12 AND t.store_no = ao.store_no) /*시청점*/
+	AND o.order_type = 'OD_003' /*매장주문*/
+	UNION ALL
+	SELECT ao.store_no
+      , m1.account_amt as store_price
+      , m2.account_amt as acc_order_fee
+	FROM sales.tb_accounts2_order ao
+	LEFT OUTER JOIN sales.tb_accounts2_order_item m1 ON m1.acc_no = ao.acc_no AND m1.store_no = ao.store_no AND m1.order_id = ao.order_id AND m1.acc_order_type = 'ACOT_002' AND m1.order_account_type = 'ODAT_012' /*판매정산금*/
+	LEFT OUTER JOIN sales.tb_accounts2_order_item m2 ON m2.acc_no = ao.acc_no AND m2.store_no = ao.store_no AND m2.order_id = ao.order_id AND m1.acc_order_type = 'ACOT_002' AND m2.order_account_type = 'ODAT_002' /*주문수수료*/
+	WHERE ao.acc_no = ${acc_no}
+	AND ao.acc_order_type = 'ACOT_002' /*키오스크주문*/
+	AND EXISTS (SELECT 1 FROM public.tb_store t WHERE t.kitchen_no = 12 AND t.store_no = ao.store_no) /*시청점*/
+  ) x
+  GROUP BY x.store_no
+) x2
+JOIN public.tb_store s ON s.store_no = x2.store_no
+ORDER BY x2.store_no;
