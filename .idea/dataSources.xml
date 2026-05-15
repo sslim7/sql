@@ -39,5 +39,15 @@
       <jdbc-url>jdbc:postgresql://mk.cup3zyhjo6fk.ap-northeast-2.rds.amazonaws.com:5432/monthlyKitchen</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
+    <data-source source="LOCAL" name="monki-prod-multica_mk" uuid="cc6a4c40-f665-466e-bbbd-9c1111424034">
+      <driver-ref>postgresql</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.postgresql.Driver</jdbc-driver>
+      <jdbc-url>jdbc:postgresql://mk-real.cup3zyhjo6fk.ap-northeast-2.rds.amazonaws.com:5432/mk</jdbc-url>
+      <jdbc-additional-properties>
+        <property name="database.postgres.introspect.system.schemas" value="true" />
+      </jdbc-additional-properties>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
   </component>
 </project>
