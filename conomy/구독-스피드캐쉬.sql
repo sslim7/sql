@@ -229,3 +229,11 @@ select *,
 select * from subs;
 select * from user where user_id='ddaa1fda-a6b8-44fa-80fb-42583882c651';
 select * from subs_order_payment where is_success=1 and chasu=0;
+
+
+select du.name,du.phone_no,sos.receiver_name,sos.address,sos.address_detail,du.created_at
+from withdrawn_users du join subs_orders so on du.user_id=so.user_id
+    join subs_order_shipping sos on so.subs_orders_id=sos.subs_order_id
+ order by du.created_at desc;#where status=2;
+select * from user_status_changes;
+select * from user where user_id='f963a94c-b03f-4c31-97bb-94d94d6ad17b';
