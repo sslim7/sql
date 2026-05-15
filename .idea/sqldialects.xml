@@ -6,15 +6,18 @@
     <file url="file://$PROJECT_DIR$/conomy/주문-주문리스트.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/conomy/회원-정보(추천인포함)변경.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/monki/CRM-고객정보.sql" dialect="PostgreSQL" />
+    <file url="file://$PROJECT_DIR$/monki/DBA-계정생성.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/매출업-kpi쿼리.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/매출업-seg_query.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/매출업-메뉴목록.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/매출업-메뉴상세.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/매출업-빌링.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/정산-지점정산.sql" dialect="PostgreSQL" />
+    <file url="file://$PROJECT_DIR$/monki/테이블오더-다국어.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/테이블오더-동기화-원복.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/테이블오더-동기화관련.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/테이블오더-앱버전.sql" dialect="PostgreSQL" />
+    <file url="file://$PROJECT_DIR$/monki/테이블오더-유니온포스포인트완료처리.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/테이블오더-장비삭제.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/monki/테이블오더-테이블별주문조회.sql" dialect="PostgreSQL" />
   </component>
