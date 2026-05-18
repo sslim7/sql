@@ -237,3 +237,6 @@ from withdrawn_users du join subs_orders so on du.user_id=so.user_id
  order by du.created_at desc;#where status=2;
 select * from user_status_changes;
 select * from user where user_id='f963a94c-b03f-4c31-97bb-94d94d6ad17b';
+select * from user where name='s';
+select * from subs_orders where user_id='21f1dca4-e83f-481f-9dde-35cc6ae38d28';
+select * from subs_order_billing where subs_orders_id='510c0f58-f131-43f4-a766-d66a82c59e6c';
