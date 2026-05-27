@@ -11,4 +11,11 @@ select gr.resource_name,
           and to_timestamp(tdo.reg_dt) AT TIME ZONE 'Asia/Seoul' > '2026-05-01'
          where gr.store_no=891 and gr.resource_name like '야장%'
  group by 1,2
- order by dt desc;ㅋㅋㅋ
+ order by dt desc;
+
+select * from pos.tb_deal_order;
+
+select * from public.tb_code where code_id like 'APPT%';
+
+select * from public.tb_main_category;
+select * from public.tb_store_category;
