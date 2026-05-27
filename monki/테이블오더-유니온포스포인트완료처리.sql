@@ -1,50 +1,50 @@
+
+-- 얼룩말
+-- 결제 콜백누락으로 주문도 요청으로 남아있고, 포인트도 적립 누락되었다
+-- 주문을 모두 완료로 수정하고 포인트도 적립으로 수정
 -- ⚠️ 트랜잭션으로 묶어서 실행 (문제 시 롤백 가능)
 BEGIN;
 
--- 1. table_order.user_points: PENDING → ACCUMULATE
--- UPDATE table_order.user_points
--- SET change_type = 'ACCUMULATE'
--- WHERE store_no IN (897)
---   AND change_type = 'PENDING';
+select * from public.tb_store where store_nm like '얼룩말%'; -- 903
 
--- 2. pos.tb_deal: deal_status → OPRS_006
 UPDATE pos.tb_deal
 SET deal_status = 'OPRS_006'
 WHERE deal_id IN (
     SELECT deal_id
     FROM table_order.user_points
-    WHERE store_no IN (897)
+    WHERE store_no IN (903)
       AND change_type = 'PENDING'  -- 위 UPDATE 이후 상태
       AND deal_id IS NOT NULL
 );
 
--- 3. pos.tb_deal_store: order_status → OPRS_006
 UPDATE pos.tb_deal_order
 SET order_status = 'OPRS_006'
 WHERE deal_id IN (
     SELECT deal_id
     FROM table_order.user_points
-    WHERE store_no IN (897)
+    WHERE store_no IN (903)
       AND change_type = 'PENDING'
       AND deal_id IS NOT NULL
 );
 
--- 4. pos.tb_deal_store_item: order_item_status → OPRS_006
 UPDATE pos.tb_deal_order_item
 SET order_item_status = 'OPRS_006'
 WHERE deal_id IN (
     SELECT deal_id
     FROM table_order.user_points
-    WHERE store_no IN (897)
+    WHERE store_no IN (903)
       AND change_type = 'PENDING'
       AND deal_id IS NOT NULL
 );
 
--- 결과 확인 후 커밋 or 롤백
--- ROLLBACK;
+UPDATE table_order.user_points
+SET change_type = 'ACCUMULATE'
+WHERE store_no IN (903)
+  AND change_type = 'PENDING';
+
 COMMIT;
 
-
+-- 거래완료인데 포인트 PENDING 건들
 select up.store_no,
        st.store_nm,
        cd1.code_desc,
@@ -89,31 +89,4 @@ WHERE up.order_id = tdo.order_id
 -- 영향받은 row 수 확인 후
 -- ROLLBACK;
 COMMIT;
-
-
-646,샤브몽,OKPOS(공용),선불요금제,2026-05-14,1703987,1
-824,오늘도닭갈비 본점,"OKPOS(KIS,NICE서버)",후불요금제,2026-05-14,1705501,1
-824,오늘도닭갈비 본점,"OKPOS(KIS,NICE서버)",후불요금제,2026-05-14,1705570,1
-824,오늘도닭갈비 본점,"OKPOS(KIS,NICE서버)",후불요금제,2026-05-14,1705652,1
-839,완도상회 물금역본점,"OKPOS(KIS,NICE서버)",후불요금제,2026-05-14,1705710,1
-
-select * from pos.tb_deal where deal_id=1095382;
-select * from pos.tb_deal_order_item where order_id=1707866;
-select * from table_order.user_points where order_id=1705501;
-select * from pos.tb_deal_order_item where deal_id=1092311;
-1092313
-select * from table_order.user_points where order_id=1703987;
-
-select order_id,count(1)
-from table_order.user_points
-where change_type in ('PENDING','ACCUMULATE') and created_at > '2026-05-01'
-group by 1 having count(1)>1;
-
-select * from table_order.user_points where order_id in (1661116);
-select * from pos.tb_deal_order_item where order_id=1661116;
-1260
-179
-
-select * from table_order.tb_store_sync_config;
-
 
