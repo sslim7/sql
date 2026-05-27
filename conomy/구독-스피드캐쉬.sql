@@ -237,6 +237,19 @@ from withdrawn_users du join subs_orders so on du.user_id=so.user_id
  order by du.created_at desc;#where status=2;
 select * from user_status_changes;
 select * from user where user_id='f963a94c-b03f-4c31-97bb-94d94d6ad17b';
-select * from user where name='s';
-select * from subs_orders where user_id='21f1dca4-e83f-481f-9dde-35cc6ae38d28';
+select * from user where name='장성태';
+select * from subs_orders where user_id='6b703a90-b9b9-4e19-88dc-32c64b2aac95';
+select * from subs_orders so
+         join subs_order_billing sob on so.subs_orders_id=sob.subs_orders_id
+         left join subs_order_payment sop on sob.subs_order_billing_id=sop.subs_order_billing_id
+         where so.subs_orders_id in ('5993e3d5-d55f-4d38-918c-68f58d256f77',
+'7295334e-5e13-48e3-acb7-1d5feffb86ee');
 select * from subs_order_billing where subs_orders_id='510c0f58-f131-43f4-a766-d66a82c59e6c';
+select * from subs_order_billing
+         where card_number='3010';
+select * from subs_order_payment where subs_orders_id='7295334e-5e13-48e3-acb7-1d5feffb86ee';
+-- 박영숙 2026-05-07 23:33:23.111300
+select * from user where user_id in ('1fd64c53-b379-487c-abe1-82ede1694de0',
+'6b703a90-b9b9-4e19-88dc-32c64b2aac95');
+1fd64c53-b379-487c-abe1-82ede1694de0,박영숙,01085582818
+6b703a90-b9b9-4e19-88dc-32c64b2aac95,장성태 ,01040629779

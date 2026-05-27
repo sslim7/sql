@@ -51,3 +51,31 @@ WHERE mr_top.referrer_user_id = :user_id
   AND DATE_FORMAT(CONVERT_TZ(sc.updated_at,'UTC','Asia/Seoul'), '%Y-%m') = :ym
 ORDER BY 하위추천인, 일자, 구분;
 
+select * from subs_order_payment where subs_orders_id='af9d2035-9dc3-47c7-b17c-c0c4f66ccc7a';
+
+select * from orders where subs_order_id='af9d2035-9dc3-47c7-b17c-c0c4f66ccc7a';
+select * from order_items where order_id='168d44cf-8d67-4f31-af3f-3f255521126b';
+
+select * from subs_orders
+         where subs_orders_id
+           in (
+#                'd6a75967-17bd-4f9c-9ab9-6e85a6dc9fa5',
+               '4cfe3ea5-8e01-4c13-84fe-7c66bfdef28e'
+    );
+select * from subs_order_billing where subs_orders_id
+           in (
+#                'd6a75967-17bd-4f9c-9ab9-6e85a6dc9fa5',
+               '4cfe3ea5-8e01-4c13-84fe-7c66bfdef28e'
+    );
+select * from subs_order_history;
+
+select * from user where phone_no like '%2403%';
+select * from user where user_id='bd511024-6c5f-4ff7-b1eb-ed38b4a72c7a';
+select * from withdrawn_users where phone_no like '%2403%';
+
+select * from subs_orders where user_id ='bd511024-6c5f-4ff7-b1eb-ed38b4a72c7a';
+select * from subs_order_cancel where subs_orders_id in (
+    '4cfe3ea5-8e01-4c13-84fe-7c66bfdef28e'
+#     ,
+#     'd6a75967-17bd-4f9c-9ab9-6e85a6dc9fa5'
+    );
