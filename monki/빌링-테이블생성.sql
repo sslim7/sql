@@ -4,27 +4,33 @@
 -- ===========================================
 
 CREATE SCHEMA IF NOT EXISTS billing;
-
+ALTER SCHEMA billing OWNER TO mk;
 
 -- ===========================================
 -- ENUM types
 -- ===========================================
-
-CREATE TYPE billing.selling_value_kind AS ENUM ('SMALLINT', 'int', 'num', 'text', 'date', 'bool', 'json');
-CREATE TYPE billing.bill_type          AS ENUM ('subs', 'manual');
-CREATE TYPE billing.calc_type          AS ENUM ('flat', 'rate', 'free');
-CREATE TYPE billing.sell_type          AS ENUM ('tableorder', 'sellup', 'kakaotalk', 'service');
+CREATE TYPE billing.selling_value_kind AS ENUM ('int', 'num', 'text', 'date', 'bool', 'json','enum');
+CREATE TYPE billing.bill_type          AS ENUM ('정기과금', '수동과금');
+CREATE TYPE billing.calc_type          AS ENUM ('정액', '정률', '무료');
+CREATE TYPE billing.sell_type          AS ENUM ('tableorder', 'qrorder', 'sellup', 'kakaotalk', 'waiting', 'service');
 CREATE TYPE billing.invoice_status     AS ENUM ('issued', 'paid', 'cancelled');
 CREATE TYPE billing.sell_status        AS ENUM ('active', 'paused', 'cancelled');
-CREATE TYPE billing.hard_type          AS ENUM ('premium', 'normal');
-CREATE TYPE billing.contract_type      AS ENUM ('rental', 'subscription', 'free');
-
-
+CREATE TYPE billing.hard_type          AS ENUM ('일반형', '프리미엄');
+CREATE TYPE billing.contract_type      AS ENUM ('렌탈', '구독', '무료');
+CREATE TYPE billing.payment_method     AS ENUM ('자동출금', '신용카드', '기타');
+CREATE TYPE billing.source             AS ENUM ('fn_aisellup','fn_kakaotalk');
+CREATE TYPE billing.is_invoice         AS ENUM ('발행','발행안함');
+SELECT e.*--typname, enumlabel, enumsortorder
+FROM pg_type t
+JOIN pg_enum e ON t.oid = e.enumtypid
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE n.nspname = 'billing'
+ORDER BY typname, enumsortorder;
+drop type billing.hard_type;
 -- ===========================================
 -- stores
 -- 빌링매장
 -- ===========================================
-
 CREATE TABLE billing.stores (
     store_no    BIGINT PRIMARY KEY,                         -- 매장번호 (public.tb_store 참조)
     store_name  TEXT NOT NULL,                              -- 매장명
@@ -38,7 +44,14 @@ CREATE TABLE billing.stores (
 
 COMMENT ON TABLE  billing.stores          IS '빌링매장';
 COMMENT ON COLUMN billing.stores.store_no IS '매장번호 PK (public.tb_store.store_no 참조)';
-COMMENT ON COLUMN billing.stores.bill_day IS '매월 청구일';
+COMMENT ON COLUMN billing.stores.bill_day IS '청구일';
+COMMENT ON COLUMN billing.stores.biz_number IS '사업자번호';
+COMMENT ON COLUMN billing.stores.address IS '사업장주소';
+COMMENT ON COLUMN billing.stores.is_active IS '매장상태';
+
+CREATE INDEX idx_stores_store_name ON billing.stores USING gin (store_name gin_trgm_ops);
+
+
 alter table billing.stores owner to mk;
 
 -- ===========================================
@@ -89,11 +102,12 @@ alter table billing.fields owner to mk;
 -- sell_type_fields
 -- 매출유형별 필요 항목
 -- ===========================================
-
+drop table billing.sell_type_fields;
 CREATE TABLE billing.sell_type_fields (
     sell_type_field_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sell_type          billing.sell_type NOT NULL,          -- 매출유형
-    field_id           UUID NOT NULL REFERENCES billing.fields(field_id),
+--     field_id           UUID NOT NULL REFERENCES billing.fields(field_id),
+    field_id           UUID NOT NULL ,
     sort_by            SMALLINT NOT NULL DEFAULT 0,          -- 노출순서
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -117,10 +131,10 @@ CREATE TABLE billing.contracts (
     cont_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),   -- 계약ID
     store_no      BIGINT NOT NULL REFERENCES billing.stores(store_no),
     sell_type     billing.sell_type NOT NULL,                   -- 매출유형
-    contract_data JSONB NOT NULL DEFAULT '{}',                  -- 계약데이터 (sell_type별 상이)
+    contract_data JSONB,                                        -- 계약데이터 (sell_type별 상이)
     sell_status   billing.sell_status NOT NULL DEFAULT 'active',
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at    TIMESTAMPTZ
 );
 
 CREATE INDEX idx_contracts_store_no   ON billing.contracts(store_no);
@@ -276,7 +290,7 @@ CREATE TABLE billing.invoice (
     invoice_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),   -- 송장항목ID
     bill_id       UUID NOT NULL REFERENCES billing.billing(bill_id) ON DELETE CASCADE,
     sell_type     billing.sell_type NOT NULL,                   -- 매출유형
-    invoice_data  JSONB NOT NULL DEFAULT '{}',                  -- 빌링데이터 (생성 시점 스냅샷)
+    invoice_data  JSONB,                  -- 빌링데이터 (생성 시점 스냅샷)
     total_amount  INTEGER NOT NULL DEFAULT 0,                       -- 빌링금액
     supply_amount INTEGER NOT NULL DEFAULT 0,                       -- 공급가액
     vat_amount    INTEGER NOT NULL DEFAULT 0,                       -- 부가세
@@ -359,30 +373,32 @@ CREATE TRIGGER trg_invoice_updated_at   BEFORE UPDATE ON billing.invoice   FOR E
 
 INSERT INTO billing.fields (field_name, field_description, field_type) VALUES
 -- 공통
-    ('bill_type',        '빌링유형 (subs, manual)',            'text'),
+    ('bill_type',        '빌링유형',            'enum'),
+    ('payment_method',   '결제방법',            'enum'),
+    ('is_invoice',       '인보이스유무',         'enum'),
 -- sellup
-    ('calc_type',        '계산유형 (flat, rate, free)',            'text'),
+    ('calc_type',        '계산유형    ',        'enum'),
     ('calc_value',       '계산값',              'int'),
     ('contract_date',    '계약일',              'date'),
     ('start_bill_date',  '빌링시작일',           'date'),
-    ('source',           '계산시 소스 SQL 함수명', 'text'),
+    ('source',           '연동자료',            'enum'),
 -- tableorder
-    ('contract_type',    '계약형태',            'text'),
+    ('contract_type',    '계약형태',            'enum'),
     ('ops_qty',          '보급수량',            'int'),
     ('unit_price',       '단가',               'int'),
     ('subs_price',       '월분납액',            'int'),
     ('prepaid_amount',   '선납금액',            'int'),
-    ('contract_number',  '계약렌탈횟수',         'int'),
-    ('prepaid_number',   '선납횟수',            'int'),
-    ('hard_type',        '테이블오더종류',        'text'),
+    ('contract_count',  '계약렌탈횟수',          'int'),
+    ('prepaid_count',   '선납횟수',             'int'),
+    ('hard_type',        '테이블오더종류',        'enum'),
 -- service
     ('service_name',     '제공서비스',           'text'),
-    ('service_date',     '서비스제공일',          'date'),
+    ('service_date',     '서비스제공일',         'date'),
     ('qty',              '수량',               'int'),
     ('price',            '금액',               'int'),
     ('comment',          '비고',               'text')
 ON CONFLICT DO NOTHING;
-
+select * from billing.fields;
 
 -- ===========================================
 -- sell_type_fields INSERT
@@ -392,41 +408,76 @@ ON CONFLICT DO NOTHING;
 
 -- sellup
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by)
-SELECT 'sellup', field_id, sort_by FROM (
+--     values ('sellup', '31fee5f8-443e-499e-981f-84878aba34fd', 1);
+
+SELECT 'sellup'::billing.sell_type, f.field_id, t.sort_by
+FROM (
     VALUES
         ('bill_type',       1),
         ('calc_type',       2),
         ('calc_value',      3),
         ('contract_date',   4),
         ('start_bill_date', 5),
-        ('source',          6)
+        ('source',          6),
+        ('payment_method',  7),
+        ('is_invoice',      8)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id) DO NOTHING;
 
-alter table billing.sell_type_fields owner to mkadmin;
-select * from billing.sell_type_fields;
-SELECT current_user;
-SELECT schema_owner FROM information_schema.schemata WHERE schema_name = 'billing';
 -- tableorder
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by)
 SELECT 'tableorder', field_id, sort_by FROM (
     VALUES
         ('bill_type',        1),
         ('contract_type',    2),
-        ('ops_qty',          3),
-        ('unit_price',       4),
-        ('subs_price',       5),
-        ('prepaid_amount',   6),
-        ('contract_number',  7),
-        ('prepaid_number',   8),
-        ('start_bill_date',  9),
-        ('hard_type',       10)
+        ('contract_date',    3),
+        ('hard_type',        4),
+        ('ops_qty',          5),
+        ('unit_price',       6),
+        ('subs_price',       7),
+        ('prepaid_amount',   8),
+        ('contract_count',   9),
+        ('prepaid_count',    10),
+        ('start_bill_date',  11),
+        ('payment_method',   12),
+        ('is_invoice',       13)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id) DO NOTHING;
 
+INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by)
+SELECT 'qrorder', field_id, sort_by FROM (
+    VALUES
+        ('bill_type',        1),
+        ('contract_date',    2),
+        ('ops_qty',          3),
+        ('unit_price',       4),
+        ('subs_price',       5),
+        ('start_bill_date',  6),
+        ('payment_method',   7),
+        ('is_invoice',       8)
+) AS t(fname, sort_by)
+JOIN billing.fields f ON f.field_name = t.fname
+ON CONFLICT (sell_type, field_id) DO NOTHING;
 
+INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by)
+SELECT 'qrorder', field_id, sort_by FROM (
+    VALUES
+        ('bill_type',        1),
+        ('contract_date',    2),
+        ('ops_qty',          3),
+        ('unit_price',       4),
+        ('subs_price',       5),
+        ('start_bill_date',  6),
+        ('payment_method',   7),
+        ('is_invoice',       8)
+) AS t(fname, sort_by)
+JOIN billing.fields f ON f.field_name = t.fname
+ON CONFLICT (sell_type, field_id) DO NOTHING;
+
+-- select * from billing.fields;
+-- select * from billing.sell_type_fields where sell_type='tableorder';
 -- kakaotalk
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by)
 SELECT 'kakaotalk', field_id, sort_by FROM (
@@ -434,7 +485,9 @@ SELECT 'kakaotalk', field_id, sort_by FROM (
         ('bill_type',       1),
         ('contract_date',   2),
         ('unit_price',      3),
-        ('source',          4)
+        ('source',          4),
+        ('payment_method',  5),
+        ('is_invoice',      6)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id) DO NOTHING;
@@ -456,7 +509,7 @@ ON CONFLICT (sell_type, field_id) DO NOTHING;
 
 
 -- ===========================================
--- 확인 쿼리
+-- sell_type별 필드 리스트
 -- ===========================================
 
 SELECT
@@ -467,6 +520,7 @@ SELECT
     f.field_type
 FROM billing.sell_type_fields stf
 JOIN billing.fields f ON f.field_id = stf.field_id
+-- WHERE stf.sell_type='tableorder'
 ORDER BY stf.sell_type, stf.sort_by;
 
 -- ===========================================

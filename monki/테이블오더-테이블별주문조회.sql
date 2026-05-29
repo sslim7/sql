@@ -10,7 +10,7 @@ select gr.resource_name,
          join pos.tb_deal_order tdo on gr.store_no=tdo.store_no and gr.resource_id=tdo.resource_id
           and to_timestamp(tdo.reg_dt) AT TIME ZONE 'Asia/Seoul' > '2026-05-01'
          where gr.store_no=891 and gr.resource_name like '야장%'
- group by 1,2
+ group by 1  ,2
  order by dt desc;
 
 select * from pos.tb_deal_order;
