@@ -145,50 +145,7 @@ COMMENT ON TABLE  billing.contracts               IS '계약';
 COMMENT ON COLUMN billing.contracts.store_no IS '매장번호';
 COMMENT ON COLUMN billing.contracts.sell_type IS '매출유형';
 COMMENT ON COLUMN billing.contracts.sell_status IS '판매상태';
-COMMENT ON COLUMN billing.contracts.contract_data IS '
-  [sellup]
-  {
-    "bill_type": "subs",
-    "calc_type": "flat" | "rate" | "free",
-    "calc_value": 75000,
-    "contract_date": "2025-01-01",
-    "start_bill_date": "2025-02-01",
-    "source": "fn_get_aisellup"
-  }
-
-  [tableorder]
-  {
-    "bill_type": "subs",
-    "contract_type": "rental" | "subscription" | "free",
-    "ops_qty": 3,
-    "unit_price": 20000,
-    "subs_price": 60000,
-    "prepaid_amount": 100000,
-    "contract_number": 24,
-    "prepaid_number": 12,
-    "start_bill_date": "2025-01-01",
-    "hard_type": "premium" | "normal"
-  }
-
-  [kakaotalk]
-  {
-    "bill_type": "subs",
-    "contract_date": "2025-03-01",
-    "unit_price": 50,
-    "source": "fn_get_sms"
-  }
-
-  [service]
-  {
-    "bill_type": "manual",
-    "service_name": "공유기 교체",
-    "service_date": "2025-05-10",
-    "qty": 1,
-    "price": 50000,
-    "comment": "2F 공유기 불량으로 교체"
-  }
-';
-
+COMMENT ON COLUMN billing.contracts.contract_data IS 'sell_type 별 계약결과';
 
 alter table billing.contracts owner to mk;
 
@@ -462,16 +419,14 @@ JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id) DO NOTHING;
 
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by)
-SELECT 'qrorder', field_id, sort_by FROM (
+SELECT 'waiting', field_id, sort_by FROM (
     VALUES
         ('bill_type',        1),
         ('contract_date',    2),
-        ('ops_qty',          3),
-        ('unit_price',       4),
-        ('subs_price',       5),
-        ('start_bill_date',  6),
-        ('payment_method',   7),
-        ('is_invoice',       8)
+        ('subs_price',       3),
+        ('start_bill_date',  4),
+        ('payment_method',   5),
+        ('is_invoice',       6)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id) DO NOTHING;

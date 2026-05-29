@@ -29,3 +29,7 @@ SELECT st.store_no,
  ORDER BY st.store_name COLLATE "ko-KR-x-icu"
  LIMIT :page_size OFFSET (:page - 1) * :page_size
 ;
+
+-- 은행코드
+select code_id,code_desc from public.tb_code where code_group='BANK' order by sort_order;
+
