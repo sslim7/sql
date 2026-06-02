@@ -119,3 +119,4 @@ and st.store_name ILIKE '%' || :searchKeyword || '%'
 -- fn_kakaotalk_count
 select count(1) from table_order.sms_send_log where store_no=:store_no;
 
+select * from billing.invoice;
