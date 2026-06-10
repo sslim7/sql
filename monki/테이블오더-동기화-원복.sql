@@ -1,4 +1,6 @@
-  ---
+  select * from table_order.tb_pos_sync_version;
+;
+---
   1. 메뉴이름 롤백
 
   -- 확인용

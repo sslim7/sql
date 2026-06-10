@@ -75,3 +75,10 @@ DO $$
         UPDATE table_order.user_visit SET store_no = b_store_no WHERE store_no = a_store_no;
     END
 $$;
+
+select * from table_order.tb_pos_sync_log where store_no=757;
+
+select * from table_order.tb_pos_sync_session where session_id='3fbb7ddc-5f2b-4f75-8087-47dfd2b014ad';
+select * from table_order.tb_pos_sync_session
+--          where store_no=757
+                                              order by created_at desc limit 10;

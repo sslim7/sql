@@ -117,7 +117,9 @@ select mgr.manager_id,mgr.name from sellup.manager mgr
  and (mgr.name like '%홍길%' or mgr.email like '%monki%')
  order by mgr.name COLLATE "ko-KR-x-icu";
 
-select * from sellup.apilot_config_store;
+select * from sellup.apilot_config_store where store_no=841;
+
+select * from table_order.coupon;
 
 SELECT
             bi.store_no,
