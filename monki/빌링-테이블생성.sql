@@ -82,7 +82,8 @@ alter table billing.sell_type_fields owner to mk;
 -- ===========================================
 CREATE TABLE billing.stores (
     store_no    BIGINT PRIMARY KEY,                         -- 매장번호 (public.tb_store 참조)
-    store_name  TEXT NOT NULL,                              -- 매장명
+    store_name  TEXT NOT NULL,                              -- 사업자등록증 상호명
+    public_store_nm    TEXT,                                -- 사장님사이트 매장명
     owner_name  TEXT,                                       -- 대표자명
     biz_number  TEXT,                                       -- 사업자번호 (public.tb_store.biz_number 참조)
     address     TEXT,                                       -- 사업장주소
@@ -90,20 +91,22 @@ CREATE TABLE billing.stores (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ
 );
--- select sb.biz_owner_name from public.tb_store st
---          join public.tb_store_biz sb on st.store_no=sb.store_no
---          where st.store_nm='장신순이네 송탄삼겹살';
+
+alter table billing.stores add column public_store_nm    TEXT;
+
 select * from billing.stores;
 select * from billing.billing;
 select * from billing.invoice;
 
 COMMENT ON TABLE  billing.stores          IS '빌링매장';
 COMMENT ON COLUMN billing.stores.store_no IS '매장번호 PK (public.tb_store.store_no 참조)';
+COMMENT ON COLUMN billing.stores.store_name IS '사업자등록증 상호명';
+COMMENT ON COLUMN billing.stores.public_store_nm IS '사장님사이트 매장명';
 COMMENT ON COLUMN billing.stores.owner_name IS '대표자명';
 COMMENT ON COLUMN billing.stores.biz_number IS '사업자번호';
 COMMENT ON COLUMN billing.stores.address IS '사업장주소';
 COMMENT ON COLUMN billing.stores.is_active IS '매장상태';
-
+update billing.stores set public_store_nm=store_name;
 CREATE INDEX idx_stores_store_name ON billing.stores USING gin (store_name gin_trgm_ops);
 create index idx_stores_owner_name on billing.stores using gin (owner_name gin_trgm_ops);
 
