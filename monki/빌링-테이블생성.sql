@@ -23,7 +23,7 @@ CREATE TYPE billing.bill_day           AS ENUM ('5','10','15','20','25');
 CREATE TYPE billing.agency             AS ENUM ('먼키','권프로');
 CREATE TYPE billing.is_invoice         AS ENUM ('발행','발행안함');
 CREATE TYPE billing.payment_status     AS ENUM ('CMS출금완료','신용카드','무통장입금','CMS출금실패');
-CREATE TYPE billing.commission_type     AS ENUM ('정액', '정률');
+CREATE TYPE billing.commission_type    AS ENUM ('정액', '정률');
 
 SELECT e.*--typname, enumlabel, enumsortorder
 FROM pg_type t
@@ -283,27 +283,7 @@ COMMENT ON COLUMN billing.invoice.invoice_data IS '생성 시점 계약데이터
 COMMENT ON COLUMN billing.invoice.total_amount IS '합계';
 COMMENT ON COLUMN billing.invoice.supply_amount IS '공급가';
 COMMENT ON COLUMN billing.invoice.vat_amount IS '부가세';
-select * from billing.payments;
 
-사업자번호
-일자 입력할때, 4자리만되게
-SELECT
-  biz_number AS before,
-  regexp_replace(
-    regexp_replace(biz_number, '\D', '', 'g'),
-    '(\d{3})(\d{2})(\d{5})', '\1-\2-\3'
-  ) AS after,
-  length(regexp_replace(biz_number, '\D', '', 'g')) AS digit_count
-FROM billing.stores
-ORDER BY digit_count;
-UPDATE billing.stores
-SET biz_number = regexp_replace(
-    regexp_replace(biz_number, '\D', '', 'g'),
-    '(\d{3})(\d{2})(\d{5})', '\1-\2-\3'
-)
-WHERE length(regexp_replace(biz_number, '\D', '', 'g')) = 10;
-select * from billing.stores;
-select * from billing.invoice where bill_id='a2e48470-cb7b-4ad4-995d-7ec34dfd2b9b';
 alter table billing.invoice owner to mk;
 
 CREATE TABLE billing.payments
@@ -323,8 +303,7 @@ COMMENT ON COLUMN billing.payments.payment_date IS '철금처리일';
 COMMENT ON COLUMN billing.payments.reason       IS '처리사유';
 
 alter table billing.payments owner to mk;
-select * from billing.stores;
-select * from billing.contracts;
+
 CREATE TABLE billing.payment_detail
 (
     pay_dtl_id     UUID PRIMARY KEY                DEFAULT gen_random_uuid(), -- 출금처리상세ID
@@ -332,6 +311,54 @@ CREATE TABLE billing.payment_detail
     bill_id   UUID NOT NULL REFERENCES billing.billing(bill_id) ON DELETE CASCADE,
     invoice_id UUID NOT NULL REFERENCES billing.invoice(invoice_id) ON DELETE CASCADE
 );
+
+CREATE INDEX idx_payinv_payment   ON billing.payment_detail(payment_id);
+CREATE INDEX idx_payinv_bill      ON billing.payment_detail(bill_id);
+CREATE INDEX idx_payinv_invoice   ON billing.payment_detail(invoice_id);
+
+COMMENT ON TABLE  billing.payment_detail              IS '출금처리정보상세';
+
+alter table billing.payment_detail owner to mk;
+select * from billing.billing where store_no=802;
+select * from billing.contracts where store_no=802;
+select * from billing.invoice where cont_id='559fd0e5-11aa-47a6-a5fe-9a7166bb1b17';
+select * from billing.payment_detail;
+
+CREATE TABLE billing.settle_contracts
+(
+    settle_cont_id     UUID PRIMARY KEY                DEFAULT gen_random_uuid(),                -- 정산계약ID
+    cont_id            UUID NOT NULL REFERENCES billing.contracts(cont_id) ON DELETE CASCADE,    -- contract_id
+    agency_id          VARCHAR NOT NULL,
+    is_deduction       BOOLEAN NOT NULL DEFAULT false,
+    commission_type    billing.commission_type NOT NULL,
+    commission         INT NOT NULL,
+    created_at         TIMESTAMPTZ            NOT NULL DEFAULT NOW(),
+    UNIQUE (cont_id, agency_id)
+);
+
+COMMENT ON TABLE  billing.settle_contracts                      IS '정산계약정보';
+COMMENT ON COLUMN billing.settle_contracts.cont_id              IS '계약ID';
+COMMENT ON COLUMN billing.settle_contracts.agency_id            IS '에이전시ID';
+COMMENT ON COLUMN billing.settle_contracts.is_deduction         IS '기기원가공제여부';
+COMMENT ON COLUMN billing.settle_contracts.commission_type      IS '수수료유형';
+COMMENT ON COLUMN billing.settle_contracts.commission           IS '수수료';
+
+CREATE INDEX idx_settcont_agency_id      ON billing.settle_contracts(agency_id);
+CREATE INDEX idx_settcont_cont_id        ON billing.settle_contracts(cont_id);
+
+alter table billing.settle_contracts owner to mk;
+select * from billing.settle_contracts;
+select code_id agency_id, code_desc agency_name from public.tb_code where code_group = 'AGENCY' order by sort_order;
+
+insert into public.tb_code (user_gb, code_group, code_id, code_desc, rel_col, sort_order)
+SELECT 'USER','AGENCY', id, name,'partner_id',sort_by FROM (
+    VALUES
+        ('A001','권프로',1),
+        ('A002','다음정보통신',2),
+        ('A003','하준솔루션',3)
+) AS t(id, name, sort_by)
+-- ON CONFLICT (user_gb,code_group,code_id) DO NOTHING
+;
 
 CREATE INDEX idx_payinv_payment   ON billing.payment_detail(payment_id);
 CREATE INDEX idx_payinv_bill      ON billing.payment_detail(bill_id);
@@ -431,8 +458,9 @@ INSERT INTO billing.fields (field_name, field_description, field_type) VALUES
 --     ('ai_sales',         'ai-매출액',            'int'),
 --     ('cms_cont_no',      'CMS 계약번호',         'text'),
 --     ('agency',           '대리점',              'enum'),
-    ('commission_type',  '수수료율 유형',        'enum'),
-    ('commission_rate',  '수수료 율',           'int')
+--     ('commission_type',  '수수료율 유형',        'enum'),
+--     ('commission_rate',  '수수료 율',           'int'),
+    ('settle_unit_price',  '정산차감 단가',           'int')
 
 ON CONFLICT DO NOTHING;
 select * from billing.fields;
@@ -449,19 +477,19 @@ delete from billing.sell_type_fields where sell_type='tableorder' and data_type=
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by, data_type)
 SELECT 'tableorder', field_id, sort_by, 'contract' FROM (
     VALUES
---         ('contract_type',    1),
---         ('contract_date',    2),
---         ('hard_type',        3),
---         ('ops_qty',          4),
---         ('unit_price',       5),
---         ('subs_price',       6),
---         ('prepaid_amount',   7),
---         ('contract_count',   8),
---         ('start_bill_date',  9),
---         ('payment_method',   10),
---         ('bill_day',         11),
---         ('cms_cont_no',      12),
-        ('agency',      13)
+        ('contract_type',     1),
+        ('contract_date',     2),
+        ('hard_type',         3),
+        ('ops_qty',           4),
+        ('unit_price',        5),
+        ('subs_price',        6),
+        ('prepaid_amount',    7),
+        ('contract_count',    8),
+        ('start_bill_date',   9),
+        ('payment_method',    10),
+        ('bill_day',          11),
+        ('cms_cont_no',       12),
+        ('settle_unit_price', 13)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
@@ -481,9 +509,10 @@ JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
 
 -- sellup
-INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by, data_type)
---     values ('sellup', '31fee5f8-443e-499e-981f-84878aba34fd', 1);
 
+delete from billing.sell_type_fields where sell_type='sellup' and data_type='contract';
+
+INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by, data_type)
 SELECT 'sellup'::billing.sell_type, f.field_id, t.sort_by, 'contract'
 FROM (
     VALUES
@@ -492,10 +521,7 @@ FROM (
         ('contract_date',   3),
         ('start_bill_date', 4),
         ('payment_method',  5),
-        ('bill_day',        6),
-        ('agency',          7),
-        ('commission_type', 8),
-        ('commission_rate', 9)
+        ('bill_day',        6)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
