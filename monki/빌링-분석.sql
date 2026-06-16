@@ -136,7 +136,7 @@ select * from billing.contracts;
            LEFT JOIN sellup_sales ss ON ac.store_no = ss.store_no
            LEFT JOIN kakaotalk_counts kc ON ac.store_no = kc.store_no
            WHERE m.bill_yymm >= to_char(nullif(ac.start_bill_date, '')::date, 'YYYY-MM')
-         ),
+         )
          SELECT
            bill_yymm,
            store_name,
@@ -147,4 +147,4 @@ select * from billing.contracts;
            (supply_amount + floor(supply_amount * 0.1))::int as total_amount
          FROM billing_rows
          ORDER BY bill_yymm, store_name, sell_type
-     }
+
