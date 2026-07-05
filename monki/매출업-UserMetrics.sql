@@ -11,3 +11,5 @@ select count(distinct user_id) from table_order.user_stores us
  where us.store_no=841
 
 select * from table_order.coupon where store_no=841 order by created_at desc;
+
+

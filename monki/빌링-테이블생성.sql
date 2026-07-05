@@ -14,7 +14,7 @@ CREATE TYPE billing.bill_type          AS ENUM ('정기과금', '수동과금');
 CREATE TYPE billing.data_type          AS ENUM ('contract','invoice');
 CREATE TYPE billing.calc_type          AS ENUM ('정액', '정률', '무료');
 CREATE TYPE billing.sell_type          AS ENUM ('tableorder', 'qrorder', 'sellup', 'kakaotalk', 'waiting', 'service');
-CREATE TYPE billing.invoice_status     AS ENUM ('draft', 'issued', 'failed', 'paid', 'cancelled');
+CREATE TYPE billing.invoice_status     AS ENUM ('draft', 'issued', 'processing', 'failed', 'paid', 'cancelled');
 CREATE TYPE billing.sell_status        AS ENUM ('active', 'paused', 'cancelled');
 CREATE TYPE billing.hard_type          AS ENUM ('일반형-선불', '일반형-후불','프리미엄-선불','프리미엄-후불');
 CREATE TYPE billing.contract_type      AS ENUM ('약정', '무약정', '무료');
@@ -22,16 +22,13 @@ CREATE TYPE billing.payment_method     AS ENUM ('CMS출금', '신용카드');
 CREATE TYPE billing.bill_day           AS ENUM ('5','10','15','20','25');
 CREATE TYPE billing.agency             AS ENUM ('먼키','권프로');
 CREATE TYPE billing.is_invoice         AS ENUM ('발행','발행안함');
-CREATE TYPE billing.payment_status     AS ENUM ('CMS출금완료','신용카드','무통장입금','CMS출금실패');
+CREATE TYPE billing.payment_status     AS ENUM ('CMS출금진행중','CMS출금완료','신용카드','무통장입금','CMS출금실패');
 CREATE TYPE billing.commission_type    AS ENUM ('정액', '정률');
+CREATE TYPE billing.chart_type         AS ENUM ('bar', 'stacked-bar','line','area','pie');
+CREATE TYPE billing.data_source        AS ENUM ('contracts','billing','revenue','settlements');
+CREATE TYPE billing.cms_member_status  AS ENUM ('신청전','효성(진행중)','효성(승인완료)','효성(승인실패)');
 
-SELECT e.*--typname, enumlabel, enumsortorder
-FROM pg_type t
-JOIN pg_enum e ON t.oid = e.enumtypid
-JOIN pg_namespace n ON t.typnamespace = n.oid
-WHERE n.nspname = 'billing'
-ORDER BY typname, enumsortorder;
-
+select * from billing.payments;
 -- ===========================================
 -- fields
 -- 항목 (invoice_data JSONB의 필드 메타 정의)
@@ -51,7 +48,6 @@ COMMENT ON COLUMN billing.fields.field_description IS '필드설명';
 COMMENT ON COLUMN billing.fields.field_type IS '필드속성';
 
 alter table billing.fields owner to mk;
-
 
 -- ===========================================
 -- sell_type_fields
@@ -117,23 +113,78 @@ alter table billing.stores owner to mk;
 -- 빌링계좌
 -- ===========================================
 
-CREATE TABLE billing.accounts (
+CREATE TABLE billing.cms_banks (
     store_no       BIGINT NOT NULL REFERENCES billing.stores(store_no),
     bank_no        TEXT NOT NULL,                           -- 은행번호
     account_number TEXT NOT NULL,                           -- 계좌번호
     holder_name    TEXT NOT NULL,                           -- 예금주명
+    cms_agreement_path TEXT,
+    cms_register_response jsonb,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ,
 
     PRIMARY KEY (store_no)
 );
 
-COMMENT ON TABLE billing.accounts IS '빌링계좌 (매장별 정산 계좌)';
-COMMENT ON COLUMN billing.accounts.bank_no IS '은행코드';
-COMMENT ON COLUMN billing.accounts.account_number IS '계좌번호';
-COMMENT ON COLUMN billing.accounts.holder_name IS '예금주명';
+select * from billing.cms_banks;
+alter table billing.cms_banks add column cms_register_response jsonb;
+COMMENT ON TABLE billing.cms_banks IS '빌링계좌 (매장별 정산 계좌)';
+COMMENT ON COLUMN billing.cms_banks.bank_no IS '은행코드';
+COMMENT ON COLUMN billing.cms_banks.account_number IS '계좌번호';
+COMMENT ON COLUMN billing.cms_banks.holder_name IS '예금주명';
+COMMENT ON COLUMN billing.cms_banks.cms_agreement_path IS '출금이체동이서파일링크';
+COMMENT ON COLUMN billing.cms_banks.cms_register_response IS '효성에게받은 동의서업로드 응답결과';
+-- cms_register_response
+-- {
+-- "agreementFile":
+-- { "registerStatus":
+-- "등록",
+-- "agreementKey": "1000000000000000000001",
+-- "memberId": "MEMBER-01",
+-- "memberName": null,
+-- "agreementTime": "2020/01/20 15:00:00",
+-- "agreementWay": "직접",
+-- "agreementKind": "서면",
+-- "fileExtension": "jpg",
+-- "result": {
+-- "code": "Y",
+-- "message": "정상 처리"
+-- }
+-- }
+-- }
 
-alter table billing.accounts owner to mk;
+alter table billing.cms_banks owner to mk;
+select * from billing.cms_members;
+CREATE TABLE billing.cms_members (
+    store_no       BIGINT PRIMARY KEY NOT NULL REFERENCES billing.stores(store_no),
+    member_id      varchar(20) not null,
+    phone_no       varchar(12),
+    is_receipt     boolean default false,
+    receipt_number varchar(20),
+    payer_number   varchar(10) not null,
+    member_status  billing.cms_member_status not null default '신청전',
+    request_date   TIMESTAMPTZ,
+    request_fail_reason text,
+    comment        text,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ,
+    UNIQUE (member_id)
+);
+create unique index cms_members_member_id on billing.cms_members (member_id);
+
+COMMENT ON TABLE billing.cms_members IS 'CMS 회원가입정보';
+COMMENT ON COLUMN billing.cms_members.store_no IS '매장번호';
+COMMENT ON COLUMN billing.cms_members.member_id IS '회원번호 NYYMMDD999';
+COMMENT ON COLUMN billing.cms_members.phone_no IS '전화번호';
+COMMENT ON COLUMN billing.cms_members.is_receipt IS '현금영수증발행여부';
+COMMENT ON COLUMN billing.cms_members.receipt_number IS '현금영수증발행번호(전화번호)';
+COMMENT ON COLUMN billing.cms_members.payer_number IS '납세자번호(생년월이/사업자번호)';
+COMMENT ON COLUMN billing.cms_members.member_status IS 'CMS회원상태';
+COMMENT ON COLUMN billing.cms_members.request_date IS 'CMS회원신청일시';
+COMMENT ON COLUMN billing.cms_members.request_fail_reason IS '신청실패이유';
+COMMENT ON COLUMN billing.cms_members.comment IS '메모';
+
+alter table billing.cms_members owner to mk;
 
 -- ===========================================
 -- contracts
@@ -230,6 +281,7 @@ CREATE TABLE billing.billing (
     store_no       BIGINT NOT NULL REFERENCES billing.stores(store_no),
     bill_yymm      TEXT NOT NULL,                               -- 청구년일 (2026-05)
     bill_day       billing.bill_day NOT NULL,                   -- 출금일 (청구년월의 5,10,15,20,25일)
+    row_seq        INTEGER NOT NULL DEFAULT 1,                  -- 청구행
     total_amount   INTEGER NOT NULL DEFAULT 0,                  -- 빌링금액합계
     supply_amount  INTEGER NOT NULL DEFAULT 0,                  -- 공급가액
     vat_amount     INTEGER NOT NULL DEFAULT 0,                  -- 부가세
@@ -237,21 +289,23 @@ CREATE TABLE billing.billing (
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ,
 
-    UNIQUE (store_no, bill_yymm, bill_day)
+    UNIQUE (store_no, bill_yymm, bill_day, row_seq)
 );
 
-CREATE INDEX idx_billing_store_no      ON billing.billing(store_no);
+CREATE INDEX idx_billing_store_no            ON billing.billing(store_no);
 CREATE INDEX idx_billing_store_status        ON billing.billing(store_no,status);
 
-COMMENT ON TABLE  billing.billing              IS '송장 (월 청구서 헤더)';
-COMMENT ON COLUMN billing.billing.bill_yymm    IS '청구년월 (2026-05)';
-COMMENT ON COLUMN billing.billing.bill_day     IS '출금일(청구년월의 5,10,15,20,25일)';
-COMMENT ON COLUMN billing.billing.total_amount  IS 'supply_amount + vat_amount (트리거로 자동 갱신)';
+COMMENT ON TABLE  billing.billing                IS '송장 (월 청구서 헤더)';
+COMMENT ON COLUMN billing.billing.bill_yymm      IS '청구년월 (2026-05)';
+COMMENT ON COLUMN billing.billing.bill_day       IS '출금일(청구년월의 5,10,15,20,25일)';
+COMMENT ON COLUMN billing.billing.row_seq        IS '청구행(UI용)';
+COMMENT ON COLUMN billing.billing.total_amount   IS 'supply_amount + vat_amount (트리거로 자동 갱신)';
 COMMENT ON COLUMN billing.billing.supply_amount  IS '공급가';
-COMMENT ON COLUMN billing.billing.vat_amount  IS '부가세';
-COMMENT ON COLUMN billing.billing.status  IS '빌링상태';
+COMMENT ON COLUMN billing.billing.vat_amount     IS '부가세';
+COMMENT ON COLUMN billing.billing.status         IS '빌링상태';
 
 alter table billing.billing owner to mk;
+
 -- ===========================================
 -- invoice
 -- 송장항목 (line items)
@@ -292,15 +346,18 @@ CREATE TABLE billing.payments
     payment_status billing.payment_status NOT NULL,                           -- CMS출금완료,신용카드,무통장입금,CMS출금실패
     payment_date   DATE NOT NULL,
     reason         TEXT,
+    cms_transaction_id TEXT,
     created_at     TIMESTAMPTZ            NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_payments_date   ON billing.payments(payment_date);
+CREATE INDEX idx_payments_date             ON billing.payments(payment_date);
+CREATE INDEX idx_payments_transaction_id   ON billing.payments(cms_transaction_id);
 
 COMMENT ON TABLE  billing.payments              IS '출금처리정보';
 COMMENT ON COLUMN billing.payments.payment_id   IS '출금처리ID';
 COMMENT ON COLUMN billing.payments.payment_date IS '철금처리일';
 COMMENT ON COLUMN billing.payments.reason       IS '처리사유';
+COMMENT ON COLUMN billing.payments.cms_transaction_id       IS '효성에 신청한 transaction_id';
 
 alter table billing.payments owner to mk;
 
@@ -309,7 +366,8 @@ CREATE TABLE billing.payment_detail
     pay_dtl_id     UUID PRIMARY KEY                DEFAULT gen_random_uuid(), -- 출금처리상세ID
     payment_id UUID NOT NULL REFERENCES billing.payments(payment_id) ON DELETE CASCADE,
     bill_id   UUID NOT NULL REFERENCES billing.billing(bill_id) ON DELETE CASCADE,
-    invoice_id UUID NOT NULL REFERENCES billing.invoice(invoice_id) ON DELETE CASCADE
+    invoice_id UUID NOT NULL REFERENCES billing.invoice(invoice_id) ON DELETE CASCADE,
+    created_at     TIMESTAMPTZ            NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_payinv_payment   ON billing.payment_detail(payment_id);
@@ -319,10 +377,23 @@ CREATE INDEX idx_payinv_invoice   ON billing.payment_detail(invoice_id);
 COMMENT ON TABLE  billing.payment_detail              IS '출금처리정보상세';
 
 alter table billing.payment_detail owner to mk;
-select * from billing.billing where store_no=802;
-select * from billing.contracts where store_no=802;
-select * from billing.invoice where cont_id='559fd0e5-11aa-47a6-a5fe-9a7166bb1b17';
-select * from billing.payment_detail;
+
+CREATE TABLE billing.holidays
+(
+    holiday_date   DATE PRIMARY KEY NOT NULL,
+    holiday_name   text,
+    date_Kind      text,
+    is_holiday     boolean NOT NULL DEFAULT true,
+    created_at     TIMESTAMPTZ            NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE  billing.holidays                IS '휴일정보';
+COMMENT ON COLUMN billing.holidays.holiday_date   IS '일자';
+COMMENT ON COLUMN billing.holidays.holiday_name   IS '휴일명';
+COMMENT ON COLUMN billing.holidays.date_kind      IS '휴일종류';
+COMMENT ON COLUMN billing.holidays.is_holiday     IS '휴일유무';
+
+alter table billing.holidays owner to mk;
 
 CREATE TABLE billing.settle_contracts
 (
@@ -367,6 +438,80 @@ CREATE INDEX idx_payinv_invoice   ON billing.payment_detail(invoice_id);
 COMMENT ON TABLE  billing.payment_detail              IS '출금처리정보상세';
 
 alter table billing.payment_detail owner to mk;
+
+CREATE TYPE billing.chart_type         AS ENUM ('bar', 'stacked-bar','line','area','pie');
+CREATE TYPE billing.data_source        AS ENUM ('contracts','billing','revenue','settlements');
+-- 분석 템플릿
+CREATE TABLE billing.analytics_template (
+    template_id   UUID PRIMARY KEY                    DEFAULT gen_random_uuid(),
+    data_source   billing.data_source     NOT NULL,
+    label         VARCHAR(100)            NOT NULL,
+    config        JSONB                   NOT NULL,
+    chart_type    billing.chart_type      NOT NULL    DEFAULT 'bar',
+    sort_order    INT NOT NULL DEFAULT 0,
+    created_by    UUID,
+    created_at    TIMESTAMPTZ             NOT NULL    DEFAULT now()
+  );
+
+COMMENT ON TABLE  billing.analytics_template                      IS '빌링분석템플릿';
+COMMENT ON COLUMN billing.analytics_template.data_source          IS 'Data Source';
+COMMENT ON COLUMN billing.analytics_template.label                IS '표시 레이블';
+COMMENT ON COLUMN billing.analytics_template.config               IS '템플릿 구조';
+COMMENT ON COLUMN billing.analytics_template.chart_type           IS '차트유형';
+COMMENT ON COLUMN billing.analytics_template.sort_order           IS '레이블 표시순서';
+COMMENT ON COLUMN billing.analytics_template.created_by           IS '생성자 operations.users.id';
+
+alter table billing.analytics_template owner to mk;
+select * from billing.analytics_template;
+INSERT INTO billing.analytics_template (data_source, label, config, chart_type, sort_order) VALUES
+  -- 계약
+  ('contracts', '서비스별 계약현황',
+    '{"rows":["sell_type"],"columns":["payment_method"],"values":[{"field":"cont_id","agg":"count","label":"계약수"}],"filters":[]}',
+    'bar', 1),
+
+  -- 청구
+  ('billing', '월별 청구예정금액',
+    '{"rows":["bill_yymm"],"columns":["sell_type"],"values":[{"field":"total_amount","agg":"sum","label":"합계금액"}],"filters":[]}',
+    'stacked-bar', 2),
+  ('billing', '매장별 청구예정금액',
+    '{"rows":["store_name"],"columns":["sell_type"],"values":[{"field":"total_amount","agg":"sum","label":"합계금액"}],"filters":[]}',
+    'bar', 3),
+
+  -- 매출
+  ('revenue', '월별 매출현황',
+    '{"rows":["bill_yymm"],"columns":["sell_type"],"values":[{"field":"total_amount","agg":"sum","label":"합계금액"}],"filters":[]}',
+    'stacked-bar', 4),
+  ('revenue', '수금율 현황',
+    '{"rows":["bill_yymm"],"columns":["payment_status"],"values":[{"field":"total_amount","agg":"sum","label":"금액"}],"filters":[]}',
+    'stacked-bar', 5),
+
+  -- 정산
+  ('settlements', '에이전시 기여도',
+      '{"rows":["agency_name"],"columns":[],"values":[{"field":"sellup_fee","agg":"sum","label":"매출업요금"},{"field":"settle_target","agg":"sum","label":"정산대상금액"},{"field":"settle_amount","agg":"sum","label":"정산금"}],"filters":[]}',
+      'bar', 6),
+    ('settlements', '에이전시 공제금액 추이',
+      '{"rows":["bill_yymm"],"columns":["agency_name"],"values":[{"field":"deduct_amount","agg":"sum","label":"공제금액"}],"filters":[]}',
+      'line', 7),
+    ('settlements', '매출업요금 vs 정산금 추이',
+      '{"rows":["bill_yymm"],"columns":[],"values":[{"field":"sellup_fee","agg":"sum","label":"매출업요금"},{"field":"settle_amount","agg":"sum","label":"정산금"}],"filters":[]}',
+      'area', 8);
+
+select * from billing.analytics_template ;
+
+  UPDATE billing.analytics_template
+  SET config = '{"rows":["agency_name"],"columns":[],"values":[{"field":"sellup_fee","agg":"sum","label":"매출업요금"},{"field":"settle_target","agg":"sum","label":"정산대상금액"},{"field":"settle_amount","agg":"sum","label":"정산금"}],"filters":[]}'
+  WHERE label = '에이전시 기여도' AND data_source = 'settlements';
+
+  UPDATE billing.analytics_template
+  SET label = '에이전시 공제금액 추이',
+      config = '{"rows":["bill_yymm"],"columns":["agency_name"],"values":[{"field":"deduct_amount","agg":"sum","label":"공제금액"}],"filters":[]}'
+  WHERE label = '에이전시 공제액 추이' AND data_source = 'settlements';
+
+  UPDATE billing.analytics_template
+  SET label = '매출업요금 vs 정산금 추이',
+      config = '{"rows":["bill_yymm"],"columns":[],"values":[{"field":"sellup_fee","agg":"sum","label":"매출업요금"},{"field":"settle_amount","agg":"sum","label":"정산금"}],"filters":[]}'
+  WHERE label = 'Take Rate 추이' AND data_source = 'settlements';
+
 
 -- ===========================================
 -- billing.total_amount 자동 갱신 트리거
@@ -428,38 +573,38 @@ CREATE TRIGGER trg_invoice_updated_at   BEFORE UPDATE ON billing.invoice   FOR E
 -- sell_type_fields 연결 시 서브쿼리로 참조
 select * from billing.fields;
 INSERT INTO billing.fields (field_name, field_description, field_type) VALUES
--- 공통
---     ('bill_type',        '빌링유형',            'enum'),
---     ('payment_method',   '결제방법',            'enum'),
---     ('is_invoice',       '인보이스 발행',        'enum'),
---     ('bill_day',         '출금일',             'enum'),
--- -- sellup
---     ('calc_type',        '계산유형    ',        'enum'),
---     ('calc_value',       '계산값',              'int'),
---     ('contract_date',    '계약일',              'date'),
---     ('start_bill_date',  '빌링시작일',           'date'),
--- --     ('source',           '연동자료',            'enum'),
--- -- tableorder
---     ('contract_type',    '계약형태',            'enum'),
---     ('ops_qty',          '보급수량',            'int'),
---     ('unit_price',       '단가',               'int'),
---     ('subs_price',       '월분납액',            'int'),
---     ('prepaid_amount',   '선납금액',            'int'),
---     ('contract_count',  '계약렌탈횟수',          'int'),
---     ('prepaid_count',   '선납횟수',             'int'),
---     ('hard_type',        '테이블오더종류',        'enum'),
--- -- invoice
---     ('service_name',     '제공서비스',           'text'),
---     ('service_date',     '서비스제공일',          'date'),
---     ('qty',              '수량',                'int'),
---     ('comment',          '비고',                'text'),
---     ('supply_amount',    '공급가',               'int'),
---     ('vat_amount',       '부가세',               'int'),
---     ('ai_sales',         'ai-매출액',            'int'),
---     ('cms_cont_no',      'CMS 계약번호',         'text'),
---     ('agency',           '대리점',              'enum'),
---     ('commission_type',  '수수료율 유형',        'enum'),
---     ('commission_rate',  '수수료 율',           'int'),
+--공통
+    ('bill_type',        '빌링유형',            'enum'),
+    ('payment_method',   '결제방법',            'enum'),
+    ('is_invoice',       '인보이스 발행',        'enum'),
+    ('bill_day',         '출금일',             'enum'),
+-- sellup
+    ('calc_type',        '계산유형    ',        'enum'),
+    ('calc_value',       '계산값',              'int'),
+    ('contract_date',    '계약일',              'date'),
+    ('start_bill_date',  '빌링시작일',           'date'),
+--     ('source',           '연동자료',            'enum'),
+-- tableorder
+    ('contract_type',    '계약형태',            'enum'),
+    ('ops_qty',          '보급수량',            'int'),
+    ('unit_price',       '단가',               'int'),
+    ('subs_price',       '월분납액',            'int'),
+    ('prepaid_amount',   '선납금액',            'int'),
+    ('contract_count',  '계약렌탈횟수',          'int'),
+    ('prepaid_count',   '선납횟수',             'int'),
+    ('hard_type',        '테이블오더종류',        'enum'),
+-- invoice
+    ('service_name',     '제공서비스',           'text'),
+    ('service_date',     '서비스제공일',          'date'),
+    ('qty',              '수량',                'int'),
+    ('comment',          '비고',                'text'),
+    ('supply_amount',    '공급가',               'int'),
+    ('vat_amount',       '부가세',               'int'),
+    ('ai_sales',         'ai-매출액',            'int'),
+    ('cms_cont_no',      'CMS 계약번호',         'text'),
+    ('agency',           '대리점',              'enum'),
+    ('commission_type',  '수수료율 유형',        'enum'),
+    ('commission_rate',  '수수료 율',           'int'),
     ('settle_unit_price',  '정산차감 단가',           'int')
 
 ON CONFLICT DO NOTHING;
