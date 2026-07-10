@@ -61,7 +61,7 @@ SELECT
         WHEN 'paid'       THEN '결제완료'
         WHEN 'failed'     THEN '미납'
         WHEN 'cancelled'  THEN '결제취소'
-        ELSE '청구예정'
+        ELSE b.status::text
     END                                                                          AS 결제상태
 FROM schedule s
 LEFT JOIN billed b

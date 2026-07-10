@@ -14,7 +14,7 @@ CREATE TYPE billing.bill_type          AS ENUM ('정기과금', '수동과금');
 CREATE TYPE billing.data_type          AS ENUM ('contract','invoice');
 CREATE TYPE billing.calc_type          AS ENUM ('정액', '정률', '무료');
 CREATE TYPE billing.sell_type          AS ENUM ('tableorder', 'qrorder', 'sellup', 'kakaotalk', 'waiting', 'service');
-CREATE TYPE billing.invoice_status     AS ENUM ('draft', 'issued', 'processing', 'failed', 'paid', 'cancelled');
+CREATE TYPE billing.invoice_status     AS ENUM ('draft', 'issued', 'processing', 'failed', 'paid', 'free');
 CREATE TYPE billing.sell_status        AS ENUM ('active', 'paused', 'cancelled');
 CREATE TYPE billing.hard_type          AS ENUM ('일반형-선불', '일반형-후불','프리미엄-선불','프리미엄-후불');
 CREATE TYPE billing.contract_type      AS ENUM ('약정', '무약정', '무료');
@@ -27,8 +27,8 @@ CREATE TYPE billing.commission_type    AS ENUM ('정액', '정률');
 CREATE TYPE billing.chart_type         AS ENUM ('bar', 'stacked-bar','line','area','pie');
 CREATE TYPE billing.data_source        AS ENUM ('contracts','billing','revenue','settlements');
 CREATE TYPE billing.cms_member_status  AS ENUM ('신청전','효성(진행중)','효성(승인완료)','효성(승인실패)');
+CREATE TYPE billing.pricing_type       AS ENUM ('정액제', '종량제');
 
-select * from billing.payments;
 -- ===========================================
 -- fields
 -- 항목 (invoice_data JSONB의 필드 메타 정의)
@@ -554,7 +554,6 @@ END;
 $$;
 
 CREATE TRIGGER trg_stores_updated_at    BEFORE UPDATE ON billing.stores    FOR EACH ROW EXECUTE FUNCTION billing.set_updated_at();
-CREATE TRIGGER trg_accounts_updated_at  BEFORE UPDATE ON billing.accounts  FOR EACH ROW EXECUTE FUNCTION billing.set_updated_at();
 CREATE TRIGGER trg_contracts_updated_at BEFORE UPDATE ON billing.contracts FOR EACH ROW EXECUTE FUNCTION billing.set_updated_at();
 CREATE TRIGGER trg_billing_updated_at   BEFORE UPDATE ON billing.billing   FOR EACH ROW EXECUTE FUNCTION billing.set_updated_at();
 CREATE TRIGGER trg_invoice_updated_at   BEFORE UPDATE ON billing.invoice   FOR EACH ROW EXECUTE FUNCTION billing.set_updated_at();
@@ -578,12 +577,13 @@ INSERT INTO billing.fields (field_name, field_description, field_type) VALUES
     ('payment_method',   '결제방법',            'enum'),
     ('is_invoice',       '인보이스 발행',        'enum'),
     ('bill_day',         '출금일',             'enum'),
+    ('pricing_type',     '과금방법',            'enum'),
+    ('end_bill_date',    '빌링종료일',          'date'),
 -- sellup
     ('calc_type',        '계산유형    ',        'enum'),
     ('calc_value',       '계산값',              'int'),
     ('contract_date',    '계약일',              'date'),
     ('start_bill_date',  '빌링시작일',           'date'),
---     ('source',           '연동자료',            'enum'),
 -- tableorder
     ('contract_type',    '계약형태',            'enum'),
     ('ops_qty',          '보급수량',            'int'),
@@ -603,9 +603,9 @@ INSERT INTO billing.fields (field_name, field_description, field_type) VALUES
     ('ai_sales',         'ai-매출액',            'int'),
     ('cms_cont_no',      'CMS 계약번호',         'text'),
     ('agency',           '대리점',              'enum'),
-    ('commission_type',  '수수료율 유형',        'enum'),
-    ('commission_rate',  '수수료 율',           'int'),
-    ('settle_unit_price',  '정산차감 단가',           'int')
+    ('commission_type',  '수수료율 유형',         'enum'),
+    ('commission_rate',  '수수료 율',            'int'),
+    ('settle_unit_price', '정산차감 단가',         'int')
 
 ON CONFLICT DO NOTHING;
 select * from billing.fields;
@@ -618,7 +618,7 @@ select * from billing.fields;
 -- tableorder
 
 delete from billing.sell_type_fields where sell_type='tableorder' and data_type='contract';
-
+select * from billing.sell_type_fields where sell_type='tableorder' and data_type='contract';
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by, data_type)
 SELECT 'tableorder', field_id, sort_by, 'contract' FROM (
     VALUES
@@ -633,12 +633,12 @@ SELECT 'tableorder', field_id, sort_by, 'contract' FROM (
         ('start_bill_date',   9),
         ('payment_method',    10),
         ('bill_day',          11),
-        ('cms_cont_no',       12),
-        ('settle_unit_price', 13)
+        ('settle_unit_price', 12)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
 
+delete from billing.sell_type_fields where sell_type='qrorder' and data_type='contract';
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by, data_type)
 SELECT 'qrorder', field_id, sort_by, 'contract' FROM (
     VALUES
@@ -647,8 +647,9 @@ SELECT 'qrorder', field_id, sort_by, 'contract' FROM (
         ('unit_price',       3),
         ('subs_price',       4),
         ('start_bill_date',  5),
-        ('payment_method',   6),
-        ('bill_day',         7)
+        ('end_bill_date',    6),
+        ('payment_method',   7),
+        ('bill_day',         8)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
@@ -656,7 +657,6 @@ ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
 -- sellup
 
 delete from billing.sell_type_fields where sell_type='sellup' and data_type='contract';
-
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by, data_type)
 SELECT 'sellup'::billing.sell_type, f.field_id, t.sort_by, 'contract'
 FROM (
@@ -665,35 +665,41 @@ FROM (
         ('calc_value',      2),
         ('contract_date',   3),
         ('start_bill_date', 4),
-        ('payment_method',  5),
-        ('bill_day',        6)
+        ('end_bill_date',   5),
+        ('payment_method',  6),
+        ('bill_day',        7)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
+select * from billing.sell_type_fields where sell_type='waiting' and data_type='contract';
 
+delete from billing.sell_type_fields where sell_type='waiting' and data_type='contract';
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by, data_type)
 SELECT 'waiting', field_id, sort_by, 'contract' FROM (
     VALUES
-        ('contract_date',    1),
+        ('pricing_type',     1),
         ('subs_price',       2),
-        ('start_bill_date',  3),
-        ('payment_method',   4),
-        ('bill_day',         5)
+        ('unit_price',       3),
+        ('contract_date',    4),
+        ('start_bill_date',  5),
+        ('end_bill_date',    6),
+        ('payment_method',   7),
+        ('bill_day',         8)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
 
--- select * from billing.fields;
--- select * from billing.sell_type_fields where sell_type='tableorder';
 -- kakaotalk
+delete from billing.sell_type_fields where sell_type='kakaotalk' and data_type='contract';
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by, data_type)
 SELECT 'kakaotalk', field_id, sort_by, 'contract' FROM (
     VALUES
---         ('contract_date',   1),
---         ('unit_price',      2),
---         ('start_bill_date', 3),
---         ('payment_method',  4),
-        ('bill_day',        5)
+        ('contract_date',   1),
+        ('unit_price',      2),
+        ('start_bill_date', 3),
+        ('end_bill_date',   4),
+        ('payment_method',  5),
+        ('bill_day',        6)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
@@ -705,10 +711,10 @@ ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by,data_type)
 SELECT 'tableorder', field_id, sort_by, 'invoice' FROM (
     VALUES
---         ('qty',             1),
---         ('unit_price',      2),
---         ('supply_amount',   3),
---         ('vat_amount',      4),
+        ('qty',             1),
+        ('unit_price',      2),
+        ('supply_amount',   3),
+        ('vat_amount',      4),
         ('comment', 5)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
@@ -718,10 +724,10 @@ ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by,data_type)
 SELECT 'qrorder', field_id, sort_by, 'invoice' FROM (
     VALUES
---         ('qty',             1),
---         ('unit_price',      2),
---         ('supply_amount',   3),
---         ('vat_amount',      4),
+        ('qty',             1),
+        ('unit_price',      2),
+        ('supply_amount',   3),
+        ('vat_amount',      4),
         ('comment',         5)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
@@ -731,23 +737,23 @@ ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by,data_type)
 SELECT 'sellup', field_id, sort_by, 'invoice' FROM (
     VALUES
---         ('ai_sales',        1),
---         ('calc_type',       2),
---         ('calc_value',      3),
---         ('supply_amount',   4),
---         ('vat_amount',      5),
+        ('ai_sales',        1),
+        ('calc_type',       2),
+        ('calc_value',      3),
+        ('supply_amount',   4),
+        ('vat_amount',      5),
         ('comment',         6)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
-
 -- waiting
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by,data_type)
 SELECT 'waiting', field_id, sort_by, 'invoice' FROM (
     VALUES
---         ('supply_amount',   1),
---         ('vat_amount',      2),
-        ('comment',         3)
+        ('qty',             1),
+        ('supply_amount',   2),
+        ('vat_amount',      3),
+        ('comment',         4)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname
 ON CONFLICT (sell_type, field_id, data_type) DO NOTHING;
@@ -756,10 +762,10 @@ select * from billing.billing;
 INSERT INTO billing.sell_type_fields (sell_type, field_id, sort_by,data_type)
 SELECT 'kakaotalk', field_id, sort_by, 'invoice' FROM (
     VALUES
---         ('qty',             1),
---         ('unit_price',      2),
---         ('supply_amount',   3),
---         ('vat_amount',      4),
+        ('qty',             1),
+        ('unit_price',      2),
+        ('supply_amount',   3),
+        ('vat_amount',      4),
         ('comment',         5)
 ) AS t(fname, sort_by)
 JOIN billing.fields f ON f.field_name = t.fname

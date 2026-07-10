@@ -7,15 +7,22 @@
 5. 재집계 -> status=reconciled라서 재집계안됨 (업데이트대상이 없으면 상태도 안바뀐다 ㅠㅠ)
 6. 재집계 -> SELECT * FROM operations.settlement_runs WHERE year_month='2026-05'; 불러서 status=order_updated 변경
 7. 실행판정 -> 다음단계 -> Production쓰기 -> 다음단계 status=order_updated라서 다음단계안됨 recalculated로 변경후 다음단계
-9. 통합관리(https://crew.monki.net admin_id_001 / yes1234) 정산-통합정산 정산집계등록(시청점)
-10. 완료
-11. 마지막에 있는 키오스크 주문수수료 + 먼키앱(포장제외 홀주문) 주문수수료 조회 쿼리실행하여 리스트 전달
+8. 완료 단계에서
+    - 통합관리(https://crew.monki.net admin_id_001 / yes1234) 정산-통합정산 정산집계등록 버튼 클릭후
+    - 정산집계등완료 버튼 누른다.
+9. 마지막에 있는 키오스크 주문수수료 + 먼키앱(포장제외 홀주문) 주문수수료 조회 쿼리실행하여 리스트 전달
 
 https://ops.monthlykitchen.kr/settlements
 주문상태 업데이트 대상이 없으면 status가 바뀌지 않으니 완료후 status로 수정하고 다음단계버튼을 눌러라
 
 2단계: 화면에 파일붙이고 https://adm.smartkds.co.kr/smartcast/jsp/main.jsp mkitchenM/master1234 들어가서 시청점 합계금액을 가져와서 입력
-SELECT * FROM operations.settlement_runs WHERE year_month='2026-05';
+SELECT * FROM operations.settlement_runs WHERE year_month='2026-06';
+select * from operations.settlement_pre_checks
+         where
+--              run_id='b3e78b3e-b929-4d3c-a26b-03c8c20ce6d3'
+               run_id='af529b57-9ee7-49fb-a2e9-3941d5363bf1'
+;
+
 
 각 단계가 요구하는 status:
   ┌─────────────────┬───────────────┬────────────────────────────────┐
@@ -133,16 +140,16 @@ ORDER BY s.store_no ASC
 SELECT count(*) AS cnt
 FROM public.tb_order
 WHERE use_yn = TRUE
-AND reg_dt BETWEEN date_part('epoch', concat('{시작날짜}2024-10-01')::timestamp AT TIME ZONE 'KST')::int8
-AND (date_part('epoch', concat('{종료날짜}2024-10-31')::timestamp AT TIME ZONE 'KST' + interval'1 day')::int8 - 1)
+AND reg_dt BETWEEN date_part('epoch', concat('2026-06-01')::timestamp AT TIME ZONE 'KST')::int8
+AND (date_part('epoch', concat('2026-06-30')::timestamp AT TIME ZONE 'KST' + interval'1 day')::int8 - 1)
 AND order_status = 'OD_013'
 ;
 
 SELECT count(*) AS cnt
 FROM public.tb_order
 WHERE use_yn = TRUE
-  AND reg_dt BETWEEN date_part('epoch', '2026-04-01'::timestamp AT TIME ZONE 'KST')::int8
-                 AND (date_part('epoch', ('2026-04-30'::timestamp + interval '1 day') AT TIME ZONE 'KST')::int8 - 1)
+  AND reg_dt BETWEEN date_part('epoch', '2026-06-01'::timestamp AT TIME ZONE 'KST')::int8
+                 AND (date_part('epoch', ('2026-06-30'::timestamp + interval '1 day') AT TIME ZONE 'KST')::int8 - 1)
   AND order_status = 'OD_013'
 ;
 
@@ -151,8 +158,8 @@ SELECT count(*) AS cnt
 FROM public.tb_order_store a
 JOIN public.tb_order b ON a.order_no = b.order_no
 AND b.use_yn = TRUE
-AND b.reg_dt BETWEEN date_part('epoch', '2026-04-01'::timestamp AT TIME ZONE 'KST')::int8
-AND (date_part('epoch', ('2026-04-30'::timestamp + interval '1 day') AT TIME ZONE 'KST')::int8 - 1)
+AND b.reg_dt BETWEEN date_part('epoch', '2026-06-01'::timestamp AT TIME ZONE 'KST')::int8
+AND (date_part('epoch', ('2026-06-30'::timestamp + interval '1 day') AT TIME ZONE 'KST')::int8 - 1)
 AND a.store_order_status = 'OD_013'
 ;
 
@@ -160,8 +167,8 @@ BEGIN TRANSACTION;
 UPDATE public.tb_order
 SET order_status = 'OD_014'
 WHERE use_yn = TRUE
-AND reg_dt BETWEEN date_part('epoch', '2026-04-01'::timestamp AT TIME ZONE 'KST')::int8
-AND (date_part('epoch', ('2026-04-30'::timestamp + interval '1 day') AT TIME ZONE 'KST')::int8 - 1)
+AND reg_dt BETWEEN date_part('epoch', '2026-06-01'::timestamp AT TIME ZONE 'KST')::int8
+AND (date_part('epoch', ('2026-06-30'::timestamp + interval '1 day') AT TIME ZONE 'KST')::int8 - 1)
 AND order_status = 'OD_013'
 ;
 UPDATE public.tb_order_store a
@@ -169,8 +176,8 @@ SET store_order_status = 'OD_014'
 FROM public.tb_order b
 WHERE a.order_no = b.order_no
 AND b.use_yn = true
-AND b.reg_dt BETWEEN date_part('epoch', '2026-04-01'::timestamp AT TIME ZONE 'KST')::int8
-AND (date_part('epoch', ('2026-04-30'::timestamp + interval '1 day') AT TIME ZONE 'KST')::int8 - 1)
+AND b.reg_dt BETWEEN date_part('epoch', '2026-06-01'::timestamp AT TIME ZONE 'KST')::int8
+AND (date_part('epoch', ('2026-06-30'::timestamp + interval '1 day') AT TIME ZONE 'KST')::int8 - 1)
 AND a.store_order_status = 'OD_013'
 ;
 ROLLBACK;
@@ -286,7 +293,7 @@ SELECT *
 -- 키오스크 주문수수료 + 먼키앱(포장제외 홀주문) 주문수수료 조회
 select DISTINCT(acc_no)
   from sales.tb_accounts2_order
- where order_date > '2026-04-01 00:00:00'  and order_date < '2026-05-01 00:00:00'
+ where order_date > '2026-05-01 00:00:00'  and order_date < '2026-06-01 00:00:00'
  order by acc_no asc;
 
 -- 위에서 조회한 acc_no로 수정
