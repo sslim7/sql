@@ -1,407 +1,244 @@
+store_daily_sales_summary
+store_weekday_sales_summary
+store_hourly_sales_summary
+store_monthly_sales_summary
+store_month_sales_summary
 
 --seg_lib,seg_lib_sql에 쿼리를 추가한다
-
+select * from sellup.seg_lib where seg_code='store_month_sales_summary';
 INSERT INTO sellup.seg_lib (seg_lib_id, seg_code, seg_name, params_schema, target, description, ai_hint, status, tags, default_engine)
-VALUES (uuid_generate_v4(), 'stores_sales_status_fc', '프렌차이즈 관리자의 매장별 영업분석', '{"type": "object", "required": ["manager_id", "base_date", "period", "store_type"], "properties": {"manager_id": {"type": "string"}, "period": {"type": "string"}, "base_date": {"type": "string", "format": "date"}, "store_type": {"type": "string"}}}', '프랜차이즈 파트너가 관리하는 매장의 특정월에 대한 캠페인이 반영된 매출지표 요약 및 캠페인별 순매출현황', '프랜차이즈 파트너가 관리하는 매장의 선택된 매장유형별 매장의 영업현황을 조회한다. 매장유형(store_type): 전체(all),매출업미사용(sellup-no),매출업매장(sellup-all),매출업파일럿매장(sellup-auto)', '{}', 'active', '{sales stores,sales,orders,aovs,visitors,members}', 'postgres');
-
-INSERT INTO sellup.seg_lib (seg_lib_id, seg_code, seg_name, params_schema, target, description, ai_hint, status, tags, default_engine)
-VALUES (uuid_generate_v4(), 'stores_sales_status_fc', '특정매장의 점심/저녁,주중/주말에 대한 매출액/주문수/객단가/방문자수 비교', '{"type": "object", "required": ["store_no", "base_date", "period"], "properties": {"period": {"enum": ["day", "weekday", "week", "month", "quarter", "mtd", "mtdhms"], "type": "string"}, "store_no": {"type": "integer"}, "base_date": {"type": "string", "format": "date"}}}', '점심/저녁, 주중/주말에 대한 매출/주문수/객단가/입장고객수',
-        '조회구간의 점심/저녁,주중/주말에 대한 매출액/주문수/객단가/방문자수 비교 한다.', '{"unit": "amount", "notes": "조회구간의 점심/저녁,주중/주말에 대한 매출액/주문수/객단가/방문자수 비교 한다.", "visual": "kpi", "metrics": ["this_sales_lunch","prev_sales_lunch","this_orders_lunch","prev_orders_lunch","this_aov_lunch","prev_aov_lunch","this_visitors_lunch","prev_visitors_lunch","this_sales_dinner","prev_sales_dinner","this_orders_dinner","prev_orders_dinner","this_aov_dinner","prev_aov_dinner","this_visitors_dinner","prev_visitors_dinner","this_sales_weekdays","prev_sales_weekdays","this_orders_weekdays","prev_orders_weekdays","this_aov_weekdays","prev_aov_weekdays","this_visitors_weekdays","prev_visitors_weekdays","this_sales_weekend","prev_sales_weekend","this_orders_weekend","prev_orders_weekend","this_aov_weekend","prev_aov_weekend","this_visitors_weekend","prev_visitors_weekend"], "purpose": "dashboard_timeslop,lunch,dinner,weekdays,weekend"}',
-        'active', '{dashboard_kpi,lunch,dinner,weekdays,weekend}', 'postgres');
-
-
-select * from sellup.seg_lib where seg_code='ai_sales';
+VALUES (uuid_generate_v4(), 'store_monthly_sales_summary', '매장의 년간 월별 영업분석', '{"type": "object", "required": ["base_year", "store_no"], "properties": {"base_yymm": {"type": "string", "pattern": "^\\d{4}-(0[1-9]|1[0-2])$", "examples": ["2026"]}, "store_no": {"type": "integer"}}}', '매장의 년간 월별 매출,할인,순매출을 조회', '매장의 년간 월별 매출,할인,순매출을 조회 (거래건수,손님수,주문수,주문금액,쿠폰할인액,포인트사용액,순매출액)', '{}', 'active', '{sales report monthly,deal_count,customer_count,order_count,order_amount,coupon_discount,point_used,net_sales}', 'postgres');
 
 INSERT INTO sellup.seg_lib_sql (seg_lib_sql_id, seg_lib_id, engine, sql_base, sql_preview_override, sql_materialize_override, notes)
-select uuid_generate_v4(),seg_lib_id,'postgres',e'WITH p AS (
-  SELECT
-    :base_date::date         AS base_date,
-    lower(:period)::text     AS period,
-    lower(:store_type)::text AS store_type
-),
-
-base_window AS (
-  SELECT
-    period,
-    base_date,
-
-    date_trunc(''month'', base_date)::date                                   AS this_month_start,
-    (date_trunc(''month'', base_date) + interval ''1 month'')::date            AS next_month_start,
-    ((date_trunc(''month'', base_date) + interval ''1 month'')::date
-      - interval ''1 day'')::date                                            AS this_month_last_day,
-    (date_trunc(''month'', base_date) - interval ''1 month'')::date            AS prev_month_start,
-
-    CASE
-      WHEN period = ''day''     THEN base_date
-      WHEN period = ''weekday'' THEN base_date
-      WHEN period = ''week''    THEN (base_date - interval ''6 day'')::date
-      WHEN period = ''month''   THEN (base_date - interval ''1 month'' + interval ''1 day'')::date
-      WHEN period = ''quarter'' THEN (base_date - interval ''3 month'' + interval ''1 day'')::date
-      WHEN period = ''mtd''     THEN date_trunc(''month'', base_date)::date
-      WHEN period = ''mtdhms''  THEN date_trunc(''month'', base_date)::date
-    END AS this_from_kst,
-
-    CASE
-      WHEN period = ''mtdhms''  THEN base_date::timestamp
-                                     + (now() AT TIME ZONE ''Asia/Seoul'')::time
-      WHEN period = ''mtd''     THEN (base_date + interval ''1 day'')::timestamp
-      ELSE (base_date + interval ''1 day'')::timestamp
-    END AS this_to_kst,
-
-    CASE
-      WHEN period = ''day''     THEN (base_date - interval ''1 day'')::date
-      WHEN period = ''weekday'' THEN (base_date - interval ''7 day'')::date
-      WHEN period = ''week''    THEN (base_date - interval ''13 day'')::date
-      WHEN period = ''month''   THEN (base_date - interval ''2 month'' + interval ''1 day'')::date
-      WHEN period = ''quarter'' THEN (base_date - interval ''6 month'' + interval ''1 day'')::date
-      WHEN period = ''mtd''     THEN (date_trunc(''month'', base_date) - interval ''1 month'')::date
-      WHEN period = ''mtdhms''  THEN (date_trunc(''month'', base_date) - interval ''1 month'')::date
-    END AS prev_from_kst,
-
-    CASE
-      WHEN period = ''day''     THEN base_date
-      WHEN period = ''weekday'' THEN (base_date - interval ''6 day'')::date
-      WHEN period = ''week''    THEN (base_date - interval ''6 day'')::date
-      WHEN period = ''month''   THEN (base_date - interval ''1 month'' + interval ''1 day'')::date
-      WHEN period = ''quarter'' THEN (base_date - interval ''3 month'' + interval ''1 day'')::date
-
-      WHEN period = ''mtd'' THEN
-        CASE
-          WHEN base_date = ((date_trunc(''month'', base_date) + interval ''1 month'')::date
-                            - interval ''1 day'')::date
-            THEN date_trunc(''month'', base_date)::date
-          ELSE (
-            (date_trunc(''month'', base_date) - interval ''1 month'')::date
-            + (base_date - date_trunc(''month'', base_date)::date + 1)
-          )::date
-        END
-
-      WHEN period = ''mtdhms'' THEN
-        LEAST(
-          ((date_trunc(''month'', base_date) - interval ''1 month'')::date
-           + (base_date - date_trunc(''month'', base_date)::date)
-          )::timestamp
-          + (now() AT TIME ZONE ''Asia/Seoul'')::time,
-          date_trunc(''month'', base_date)::timestamp
-        )
-    END AS prev_to_kst
-  FROM p
-),
-
-tz AS MATERIALIZED (
-  SELECT
-    EXTRACT(EPOCH FROM (this_from_kst::timestamp AT TIME ZONE ''Asia/Seoul''))::bigint AS this_from_utc,
-    EXTRACT(EPOCH FROM (this_to_kst  ::timestamp AT TIME ZONE ''Asia/Seoul''))::bigint AS this_to_utc,
-    EXTRACT(EPOCH FROM (prev_from_kst::timestamp AT TIME ZONE ''Asia/Seoul''))::bigint AS prev_from_utc,
-    EXTRACT(EPOCH FROM (prev_to_kst  ::timestamp AT TIME ZONE ''Asia/Seoul''))::bigint AS prev_to_utc,
-    (this_from_kst::timestamp AT TIME ZONE ''Asia/Seoul'') AS this_from_ts,
-    (this_to_kst  ::timestamp AT TIME ZONE ''Asia/Seoul'') AS this_to_ts
-  FROM base_window
-),
-
-store_filter AS MATERIALIZED (
-  SELECT s.store_no
-  FROM public.tb_store s
-  JOIN sellup.manager_store ms on s.store_no=ms.store_no
-  JOIN sellup.manager mgr on ms.manager_id=mgr.manager_id and mgr.manager_id=:manager_id
-  WHERE s.table_order_yn = true          -- 기본 베이스 조건
-    AND (
-      (SELECT store_type FROM p) = ''all''
-
-      OR (
-        (SELECT store_type FROM p) = ''sellup-no''
-        AND NOT EXISTS (
-          SELECT 1 FROM sellup.basic_info bi
-          WHERE bi.store_no = s.store_no
-            AND bi.is_active = true
-        )
-      )
-
-      OR (
-        (SELECT store_type FROM p) = ''sellup-all''
-        AND EXISTS (
-          SELECT 1 FROM sellup.basic_info bi
-          WHERE bi.store_no = s.store_no
-            AND bi.is_active = true
-        )
-      )
-
-      OR (
-        (SELECT store_type FROM p) = ''sellup-auto''
-        AND EXISTS (
-          SELECT 1 FROM sellup.apilot_config_store acs
-          WHERE acs.store_no = s.store_no
-            AND acs.is_auto_pilot = true
-        )
-      )
-    )
-),
-
-visitors AS MATERIALIZED (
-  SELECT
-    dl.store_no,
-    COALESCE(SUM(GREATEST(COALESCE(dl.number_of_adult, 1), 1)) FILTER (
-      WHERE dl.reg_dt >= (SELECT this_from_utc FROM tz)
-        AND dl.reg_dt <  (SELECT this_to_utc   FROM tz)
-    ), 0)::bigint AS this_visitors,
-    COALESCE(SUM(GREATEST(COALESCE(dl.number_of_adult, 1), 1)) FILTER (
-      WHERE dl.reg_dt >= (SELECT prev_from_utc FROM tz)
-        AND dl.reg_dt <  (SELECT prev_to_utc   FROM tz)
-    ), 0)::bigint AS prev_visitors
-  FROM pos.tb_deal dl
-  JOIN store_filter sf ON sf.store_no = dl.store_no    -- store_filter 선적용
-  WHERE dl.reg_dt >= (SELECT prev_from_utc FROM tz)
-    AND dl.reg_dt <  (SELECT this_to_utc   FROM tz)
-    AND dl.deal_status = ''OPRS_006''
-  GROUP BY dl.store_no
-),
-
-nc_crm_sales AS MATERIALIZED (
-  SELECT
-    dd_base.store_no,
-    COALESCE(SUM(doi.total_price), 0)::bigint AS sales
-  FROM (
-    SELECT DISTINCT
-      store_no,
-      deal_id,
-      order_id
-    FROM table_order.deal_discount
-    WHERE discount_type IN (''COUPON'', ''POINT'')
-      AND discount_amount > 0
-      AND created_at >= (SELECT this_from_ts FROM tz)
-      AND created_at <  (SELECT this_to_ts   FROM tz)
-      AND (
-        discount_type = ''POINT''
-        OR (
-          discount_type = ''COUPON''
-          AND NOT EXISTS (
-            SELECT 1
-            FROM table_order.user_coupon uc
-            JOIN sellup.campaign cp
-              ON cp.coupon_id = uc.coupon_id
-             AND cp.store_no  = uc.store_no
-            WHERE uc.id = discount_ref_id
-          )
-        )
-      )
-  ) dd_base
-  JOIN store_filter sf ON sf.store_no = dd_base.store_no   -- store_filter 선적용
-  JOIN pos.tb_deal dl
-    ON dl.deal_id     = dd_base.deal_id
-   AND dl.store_no    = dd_base.store_no
-   AND dl.deal_status = ''OPRS_006''
-  JOIN pos.tb_deal_order_item doi
-    ON doi.deal_id          = dd_base.deal_id
-   AND doi.store_no          = dd_base.store_no
-   AND doi.order_item_status = ''OPRS_006''
-   AND doi.deleted_yn        = false
-   AND (dd_base.order_id = 0 OR doi.order_id = dd_base.order_id)
-  GROUP BY dd_base.store_no
-),
-
-campaign_crm_sales AS MATERIALIZED (
-  SELECT
-    c.store_no,
-    COALESCE(SUM(doi.total_price), 0)::bigint AS sales
-  FROM sellup.campaign_user cu
-  JOIN sellup.campaign c
-    ON c.campaign_id = cu.campaign_id
-  JOIN store_filter sf ON sf.store_no = c.store_no         -- store_filter 선적용
-  JOIN (
+select uuid_generate_v4(),seg_lib_id,'postgres',e'WITH
+params AS (
     SELECT
-      cp2.store_no,
-      uc2.coupon_id,
-      GREATEST(
-        MIN(cp2.created_at AT TIME ZONE ''Asia/Seoul''),
-        (SELECT this_from_ts FROM tz)
-      ) AS win_start,
-      LEAST(
-        MAX(uc2.expire_at AT TIME ZONE ''Asia/Seoul''),
-        (SELECT this_to_ts FROM tz)
-      ) AS win_end
-    FROM table_order.coupon cp2
-    JOIN table_order.user_coupon uc2
-      ON uc2.coupon_id = cp2.id
-     AND uc2.store_no  = cp2.store_no
-    GROUP BY cp2.store_no, uc2.coupon_id
-  ) cw
-    ON cw.coupon_id  = c.coupon_id
-   AND cw.store_no   = c.store_no
-   AND cw.win_start  < cw.win_end
-  JOIN pos.tb_deal dl
-    ON dl.store_no    = c.store_no
-   AND dl.deal_status = ''OPRS_006''
-  JOIN pos.tb_deal_order tdo
-    ON tdo.deal_id  = dl.deal_id
-   AND tdo.store_no = dl.store_no
-  LEFT JOIN table_order.user_points up
-    ON up.store_no    = dl.store_no
-   AND up.order_id    = tdo.order_id
-   AND up.change_type = ''ACCUMULATE''
-  JOIN pos.tb_deal_order_item doi
-    ON doi.store_no          = tdo.store_no
-   AND doi.order_id          = tdo.order_id
-   AND doi.order_item_status = ''OPRS_006''
-  WHERE cu.holdout = false
-    AND up.user_id = cu.user_id
-    AND (to_timestamp(dl.reg_dt) AT TIME ZONE ''Asia/Seoul'')
-          BETWEEN cw.win_start AND cw.win_end
-  GROUP BY c.store_no
+        MAKE_DATE(:base_year::integer, 1, 1) AS year_from_kst,
+        :store_no::bigint                    AS store_no
 ),
 
-member_count AS MATERIALIZED (
-  SELECT
-    us.store_no,
-    COUNT(1)::bigint AS total_members
-  FROM table_order.user_stores us
-  JOIN store_filter sf ON sf.store_no = us.store_no  -- store_no 조인
-  WHERE us.created_at < (SELECT this_to_ts FROM tz)  -- timestamptz 일치
-    AND us.deleted_at IS NULL
-  GROUP BY us.store_no
+bounds AS (
+    SELECT
+        p.year_from_kst,
+        (p.year_from_kst + INTERVAL ''1 year'')::date AS year_to_kst,
+        p.store_no
+    FROM params p
+),
+
+epoch_bounds AS (
+    SELECT
+        b.year_from_kst,
+        b.year_to_kst,
+        b.store_no,
+
+        EXTRACT(
+            EPOCH FROM (
+                b.year_from_kst::timestamp
+                AT TIME ZONE ''Asia/Seoul''
+            )
+        )::bigint AS from_utc,
+
+        EXTRACT(
+            EPOCH FROM (
+                b.year_to_kst::timestamp
+                AT TIME ZONE ''Asia/Seoul''
+            )
+        )::bigint AS to_utc
+
+    FROM bounds b
+),
+
+/*
+ * 1월~12월 기본 행
+ * 해당 월에 매출이 없어도 0으로 반환
+ */
+month_dimension AS (
+    SELECT
+        gs AS month_no,
+        gs::text || ''월'' AS month_name
+    FROM GENERATE_SERIES(1, 12) AS gs
+),
+
+/*
+ * 완료 딜 + 완료 주문 + 완료 주문상품
+ * 주문상품은 주문 단위로 합산
+ */
+valid_orders AS (
+    SELECT
+        d.store_no,
+        d.deal_id,
+        o.order_id,
+
+        EXTRACT(
+            MONTH FROM (
+                TO_TIMESTAMP(o.reg_dt)
+                AT TIME ZONE ''Asia/Seoul''
+            )
+        )::integer AS month_no,
+
+        COALESCE(d.number_of_adult, 0)
+        + COALESCE(d.number_of_child, 0) AS customer_count,
+
+        SUM(
+            COALESCE(oi.total_price, 0)
+        )::bigint AS order_amount
+
+    FROM pos.tb_deal_order o
+
+    JOIN pos.tb_deal d
+      ON d.store_no = o.store_no
+     AND d.deal_id = o.deal_id
+     AND d.deal_status = ''OPRS_006''
+     AND d.deleted_yn IS NOT TRUE
+
+    JOIN pos.tb_deal_order_item oi
+      ON oi.store_no = o.store_no
+     AND oi.deal_id = o.deal_id
+     AND oi.order_id = o.order_id
+     AND oi.order_item_status = ''OPRS_006''
+     AND oi.deleted_yn IS NOT TRUE
+
+    CROSS JOIN epoch_bounds eb
+
+    WHERE o.store_no = eb.store_no
+      AND o.order_status = ''OPRS_006''
+      AND o.deleted_yn IS NOT TRUE
+      AND o.reg_dt >= eb.from_utc
+      AND o.reg_dt <  eb.to_utc
+
+    GROUP BY
+        d.store_no,
+        d.deal_id,
+        o.order_id,
+        o.reg_dt,
+        d.number_of_adult,
+        d.number_of_child
+),
+
+/*
+ * 월별 딜·주문·주문금액
+ */
+sales_agg AS (
+    SELECT
+        vo.month_no,
+
+        COUNT(DISTINCT vo.deal_id)::bigint
+            AS deal_count,
+
+        COUNT(DISTINCT vo.order_id)::bigint
+            AS order_count,
+
+        COALESCE(
+            SUM(vo.order_amount),
+            0
+        )::bigint AS order_amount
+
+    FROM valid_orders vo
+    GROUP BY vo.month_no
+),
+
+/*
+ * 손님 수는 같은 월 내 딜별 한 번만 합산
+ */
+customer_agg AS (
+    SELECT
+        x.month_no,
+        SUM(x.customer_count)::bigint AS customer_count
+
+    FROM (
+        SELECT DISTINCT ON (
+            vo.month_no,
+            vo.deal_id
+        )
+            vo.month_no,
+            vo.deal_id,
+            vo.customer_count
+
+        FROM valid_orders vo
+
+        ORDER BY
+            vo.month_no,
+            vo.deal_id,
+            vo.order_id
+    ) x
+
+    GROUP BY x.month_no
+),
+
+/*
+ * 유효 주문에 연결된 쿠폰·포인트 할인
+ */
+discount_agg AS (
+    SELECT
+        vo.month_no,
+
+        SUM(
+            CASE
+                WHEN dd.discount_type = ''COUPON''
+                THEN ABS(COALESCE(dd.discount_amount, 0))
+                ELSE 0
+            END
+        )::bigint AS coupon_discount,
+
+        SUM(
+            CASE
+                WHEN dd.discount_type = ''POINT''
+                THEN ABS(COALESCE(dd.discount_amount, 0))
+                ELSE 0
+            END
+        )::bigint AS point_used
+
+    FROM valid_orders vo
+
+    JOIN table_order.deal_discount dd
+      ON dd.store_no = vo.store_no
+     AND dd.order_id = vo.order_id
+     AND dd.deleted_at IS NULL
+     AND dd.is_mock = false
+     AND dd.discount_type IN (''COUPON'', ''POINT'')
+
+    GROUP BY vo.month_no
 )
 
 SELECT
-  s.store_no,
-  s.store_nm
-  || CASE WHEN MAX(acs.store_no) IS NOT NULL THEN '' 🚀'' ELSE '''' END
-  || CASE WHEN MAX(bi.store_no)  IS NOT NULL THEN '' ⭐'' ELSE '''' END
-  AS store_nm,
-  CASE WHEN MAX(bi.store_no) IS NULL THEN ''sellup-no''
-       WHEN MAX(acs.store_no) IS NULL THEN ''sellup-basic''
-       ELSE ''sellup-autopilot''
-  END AS store_type,
-  tsp.tbo_adult_yn,
+    md.month_no,
+    md.month_name,
 
-  -- 매출
-  COALESCE(SUM(doi.total_price) FILTER (
-    WHERE doi.reg_dt >= (SELECT this_from_utc FROM tz)
-      AND doi.reg_dt <  (SELECT this_to_utc   FROM tz)
-  ), 0)::bigint AS this_sales,
+    COALESCE(sa.deal_count, 0)::bigint
+        AS deal_count,
 
-  COALESCE(SUM(doi.total_price) FILTER (
-    WHERE doi.reg_dt >= (SELECT prev_from_utc FROM tz)
-      AND doi.reg_dt <  (SELECT prev_to_utc   FROM tz)
-  ), 0)::bigint AS prev_sales,
+    COALESCE(ca.customer_count, 0)::bigint
+        AS customer_count,
 
-  ROUND(
-    CASE
-      WHEN COALESCE(SUM(doi.total_price) FILTER (
-             WHERE doi.reg_dt >= (SELECT prev_from_utc FROM tz)
-               AND doi.reg_dt <  (SELECT prev_to_utc   FROM tz)
-           ), 0) = 0
-      THEN NULL
-      ELSE
-        (
-          COALESCE(SUM(doi.total_price) FILTER (
-            WHERE doi.reg_dt >= (SELECT this_from_utc FROM tz)
-              AND doi.reg_dt <  (SELECT this_to_utc   FROM tz)
-          ), 0)::numeric
-          -
-          COALESCE(SUM(doi.total_price) FILTER (
-            WHERE doi.reg_dt >= (SELECT prev_from_utc FROM tz)
-              AND doi.reg_dt <  (SELECT prev_to_utc   FROM tz)
-          ), 0)::numeric
-        )
-        /
-        COALESCE(SUM(doi.total_price) FILTER (
-          WHERE doi.reg_dt >= (SELECT prev_from_utc FROM tz)
-            AND doi.reg_dt <  (SELECT prev_to_utc   FROM tz)
-        ), 0)::numeric * 100
-    END,
-    2
-  ) AS sales_change_pct,
+    COALESCE(sa.order_count, 0)::bigint
+        AS order_count,
 
-  -- 주문 수
-  COUNT(DISTINCT doi.deal_id) FILTER (
-    WHERE doi.reg_dt >= (SELECT this_from_utc FROM tz)
-      AND doi.reg_dt <  (SELECT this_to_utc   FROM tz)
-  ) AS this_orders,
+    COALESCE(sa.order_amount, 0)::bigint
+        AS order_amount,
 
-  COUNT(DISTINCT doi.deal_id) FILTER (
-    WHERE doi.reg_dt >= (SELECT prev_from_utc FROM tz)
-      AND doi.reg_dt <  (SELECT prev_to_utc   FROM tz)
-  ) AS prev_orders,
+    COALESCE(da.coupon_discount, 0)::bigint
+        AS coupon_discount,
 
-  -- AOV (this)
-  COALESCE(
-    (SUM(doi.total_price) FILTER (
-       WHERE doi.reg_dt >= (SELECT this_from_utc FROM tz)
-         AND doi.reg_dt <  (SELECT this_to_utc   FROM tz)
-     ))::numeric
-    /
-    NULLIF(
-      COUNT(DISTINCT doi.deal_id) FILTER (
-        WHERE doi.reg_dt >= (SELECT this_from_utc FROM tz)
-          AND doi.reg_dt <  (SELECT this_to_utc   FROM tz)
-      ), 0
-    ),
-    0
-  )::numeric(18,2) AS this_aov,
+    COALESCE(da.point_used, 0)::bigint
+        AS point_used,
 
-  -- AOV (prev)
-  COALESCE(
-    (SUM(doi.total_price) FILTER (
-       WHERE doi.reg_dt >= (SELECT prev_from_utc FROM tz)
-         AND doi.reg_dt <  (SELECT prev_to_utc   FROM tz)
-     ))::numeric
-    /
-    NULLIF(
-      COUNT(DISTINCT doi.deal_id) FILTER (
-        WHERE doi.reg_dt >= (SELECT prev_from_utc FROM tz)
-          AND doi.reg_dt <  (SELECT prev_to_utc   FROM tz)
-      ), 0
-    ),
-    0
-  )::numeric(18,2) AS prev_aov,
+    (
+        COALESCE(sa.order_amount, 0)
+        - COALESCE(da.coupon_discount, 0)
+        - COALESCE(da.point_used, 0)
+    )::bigint AS net_sales
 
-  -- 입장 인원수
-  COALESCE(MAX(v.this_visitors), 0) AS this_visitors,
-  COALESCE(MAX(v.prev_visitors), 0) AS prev_visitors,
+FROM month_dimension md
 
-  -- AI 매출
-  COALESCE(MAX(nc.sales), 0) + COALESCE(MAX(ccs.sales), 0) AS ai_sales,
+LEFT JOIN sales_agg sa
+       ON sa.month_no = md.month_no
 
-  ROUND(
-    CASE
-      WHEN COALESCE(SUM(doi.total_price) FILTER (
-             WHERE doi.reg_dt >= (SELECT this_from_utc FROM tz)
-               AND doi.reg_dt <  (SELECT this_to_utc   FROM tz)
-           ), 0) = 0
-      THEN NULL
-      ELSE
-        (COALESCE(MAX(nc.sales), 0) + COALESCE(MAX(ccs.sales), 0))::numeric
-        /
-        COALESCE(SUM(doi.total_price) FILTER (
-          WHERE doi.reg_dt >= (SELECT this_from_utc FROM tz)
-            AND doi.reg_dt <  (SELECT this_to_utc   FROM tz)
-        ), 0)::numeric * 100
-    END,
-    2
-  ) AS ai_sales_rate,
+LEFT JOIN customer_agg ca
+       ON ca.month_no = md.month_no
 
-  -- 누적 유저수 (해당 기간 this_to 기준)
-  COALESCE(MAX(mc.total_members), 0) AS total_members
+LEFT JOIN discount_agg da
+       ON da.month_no = md.month_no
 
-FROM pos.tb_deal_order_item doi
-JOIN public.tb_store s                    ON s.store_no   = doi.store_no
-JOIN store_filter sf                      ON sf.store_no  = doi.store_no
-LEFT JOIN public.tb_store_pos tsp         ON tsp.store_no = doi.store_no
-LEFT JOIN visitors v                      ON v.store_no   = doi.store_no
-LEFT JOIN sellup.apilot_config_store acs  ON acs.store_no = doi.store_no
-                                         AND acs.is_auto_pilot = true
-LEFT JOIN sellup.basic_info bi            ON bi.store_no  = doi.store_no
-                                         AND bi.is_active = true
-LEFT JOIN nc_crm_sales       nc           ON nc.store_no  = doi.store_no
-LEFT JOIN campaign_crm_sales ccs          ON ccs.store_no = doi.store_no
-LEFT JOIN member_count       mc           ON mc.store_no  = doi.store_no
-WHERE doi.order_item_status = ''OPRS_006''
-  AND (
-       (doi.reg_dt >= (SELECT this_from_utc FROM tz)
-        AND doi.reg_dt <  (SELECT this_to_utc   FROM tz))
-    OR (doi.reg_dt >= (SELECT prev_from_utc FROM tz)
-        AND doi.reg_dt <  (SELECT prev_to_utc   FROM tz))
-  )
-GROUP BY s.store_no, s.store_nm, tsp.tbo_adult_yn
-ORDER BY ai_sales_rate DESC, sales_change_pct DESC;
+ORDER BY md.month_no;
 ',
-       null, null, '프랜차이즈 파트너가 관리하는 매장의 특정월에 대한 캠페인이 반영된 매출지표 요약 및 캠페인별 순매출현황을 조회 한다.' from sellup.seg_lib where seg_code='stores_sales_status_fc' and default_engine='postgres';
+       null, null, '매장의 년간 월별 매출,할인,순매출을 조회 (거래건수,손님수,주문수,주문금액,쿠폰할인액,포인트사용액,순매출액)' from sellup.seg_lib where seg_code='store_monthly_sales_summary' and default_engine='postgres';

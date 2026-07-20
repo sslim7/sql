@@ -918,4 +918,14 @@ select
  group by pm.payment_date,pm.payment_status,bl.bill_yymm
  order by pm.payment_date, bl.bill_yymm;
 
-select * from billing.payment_detail;
+  INSERT INTO billing.analytics_template (data_source, label, config, chart_type, sort_order) VALUES
+  ('contracts', '월별 테이블오더-계약형태별', '{"rows": ["contract_month"], "values": [{"agg": "count", "field": "cont_id", "label": "계약수"}], "columns":
+  ["contract_type"], "filters": [{"field": "sell_type", "values": ["테이블오더"]}]}', 'stacked-bar', 0),
+  ('contracts', '월별 매출업-계산유형별', '{"rows": ["contract_month"], "values": [{"agg": "count", "field": "cont_id", "label": "계약수"}], "columns": ["calc_type"],
+  "filters": [{"field": "sell_type", "values": ["매출업"]}]}', 'stacked-bar', 0),
+  ('contracts', '월별 웨이팅-과금방법별', '{"rows": ["contract_month"], "values": [{"agg": "count", "field": "cont_id", "label": "계약수"}], "columns":
+  ["pricing_type"], "filters": [{"field": "sell_type", "values": ["웨이팅"]}]}', 'stacked-bar', 0),
+  ('contracts', '월별 알림톡-단가별', '{"rows": ["contract_month"], "values": [{"agg": "count", "field": "cont_id", "label": "계약수"}], "columns": ["unit_price"],
+  "filters": [{"field": "sell_type", "values": ["알림톡"]}]}', 'stacked-bar', 0);
+
+select * from billing.invoice;
