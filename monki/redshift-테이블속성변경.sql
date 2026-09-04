@@ -31,7 +31,9 @@ ALTER TABLE table_order.coupon
     ALTER COLUMN condition_type TYPE text
         USING condition_type::text,
     ALTER COLUMN restore_policy TYPE text
-        USING restore_policy::text;
+        USING restore_policy::text,
+    ALTER COLUMN issue_schedule_type TYPE text
+        USING issue_schedule_type::text;
 ALTER TABLE table_order.coupon
 ALTER COLUMN issue_schedule_type
 SET DEFAULT 'CONDITIONAL';
@@ -56,15 +58,16 @@ alter table table_order.auth_tokens alter column branch_type  type text;
 
 alter table sellup.seg_lib alter column status  type text;
 alter table sellup.seg_lib alter column default_engine type text;
-alter table sellup.seg_lib_sql alter column engine type text;;
+alter table sellup.seg_lib_sql alter column engine type text;
 ALTER TABLE sellup.seg_lib_sql DROP CONSTRAINT seg_lib_sql_seg_lib_id_fkey;
 alter table sellup.user_metrics_field alter column field_type type text;
 ALTER TABLE sellup.user_metrics_value DROP CONSTRAINT user_metrics_value_user_metrics_id_fkey;
-
+ALTER TABLE sellup.briefing_events DROP CONSTRAINT briefing_events_briefing_id_fkey;
 ALTER TABLE sellup.report_jobs DROP CONSTRAINT report_jobs_report_id_fkey;
 alter table sellup.manager_store alter column role type text;
 alter table sellup.manager_store  DROP CONSTRAINT manager_store_manager_id_fkey;
-ALTER TABLE sellup.manager_store
+alter table sellup.manager_store  DROP CONSTRAINT fk_manager_store_store_no;
+ALTER TABLE sellup.manager_storereport_id_fkey
     ADD CONSTRAINT manager_store_manager_id_fkey
         FOREIGN KEY (manager_id) REFERENCES sellup.manager;
 alter table sellup.manager alter column role type text;
@@ -113,7 +116,7 @@ alter table sellup.briefing_policy alter column default_time_mode type text;
 alter table sellup.briefing_policy alter column default_send_time type smallint;
 
 alter table sellup.briefing_log alter column severity type text;
-alter table sellup.autopilot_jobs alter column status type text;
+alter table sellup.apilot_jobs alter column status type text;
 alter table sellup.apilot_run_node alter column node_type type text;
 alter table sellup.apilot_run_node alter column status type text;
 ALTER TABLE sellup.apilot_run_node DROP CONSTRAINT apilot_run_node_run_id_fkey;
@@ -139,8 +142,15 @@ alter table sellup.apilot_config_store alter column persona type text;
 -- tb_menu type변경 및 뷰 재생성
 BEGIN;
 alter table public.tb_menu alter column menu_nm type text;
+ALTER TABLE public.tb_menu
+    ALTER COLUMN menu_desc TYPE text
+        USING menu_desc::text;
 DROP VIEW public.v_mkd_store_menu;
+DROP VIEW v_mkd_store_menu;
 ALTER TABLE public.tb_menu ALTER COLUMN menu_nm TYPE text;
+SELECT grantee, privilege_type
+FROM information_schema.role_table_grants
+WHERE table_name = 'v_mkd_store_menu';
 
 CREATE VIEW public.v_mkd_store_menu AS
 SELECT m.menu_no,
@@ -261,6 +271,13 @@ alter database mk integration refresh table mk.table_order.coupon;
 alter database mk integration refresh table mk.table_order.bills;
 alter database mk integration refresh table mk.table_order.auth_tokens;
 
+ALTER DATABASE mk INTEGRATION SET TRUNCATECOLUMNS = TRUE;
+
+SELECT * FROM SVV_INTEGRATION;
+SELECT schema_name, table_name, table_state, table_rows, reason
+FROM SVV_INTEGRATION_TABLE_STATE
+ORDER BY table_state, schema_name, table_name;
+
 ALTER TABLE table_order.user_points ALTER DISTKEY store_no;
 ALTER TABLE table_order.user_points ALTER COMPOUND SORTKEY (store_no, created_at);
 -- sortkey 변경확인
@@ -280,3 +297,5 @@ WHERE n.nspname = 'table_order'
 ORDER BY
     CASE WHEN a.attsortkeyord = 0 THEN 999 ELSE ABS(a.attsortkeyord) END,
     a.attnum;
+
+table_order.pg_staging_table_resync_tb_pos_sync_session
