@@ -338,3 +338,110 @@ FROM (
 ) x2
 JOIN public.tb_store s ON s.store_no = x2.store_no
 ORDER BY x2.store_no;
+
+SELECT
+  am.acc_no
+, ad.kitchen_list   -- json array: [{acc_no, kitchen_no, kitchen_nm}, ...]
+, ad.cnt
+, concat(am.acc_date_start, ' ~ ', am.acc_date_end) AS acc_period
+, am.acc_mst_state
+, public.fn_get_codetext(am.acc_mst_state::varchar, 'acc_mst_state') AS acc_mst_state_txt
+, to_char(am.deposit_due_date, 'YYYY-MM-DD') AS deposit_due_date
+, to_char(am.reg_dt, 'YYYY-MM-DD HH24:MI:SS') as reg_dt
+FROM sales.tb_accounts2_mst am
+LEFT JOIN (
+  SELECT t.acc_no, count(t.kitchen_no) AS cnt, array_to_json(array_agg(row_to_json(t))) AS kitchen_list
+  FROM (
+    SELECT t1.acc_no, k.kitchen_no, k.kitchen_nm
+    FROM sales.tb_accounts2_deposit t1
+    JOIN public.tb_store s ON s.store_no = t1.store_no
+    JOIN public.tb_kitchen k ON k.kitchen_no = s.kitchen_no
+    WHERE k.kitchen_type = 'KC_001'
+--     [AND s.kitchen_no = $kitchenNo]  -- 지점 필터
+    GROUP BY t1.acc_no, k.kitchen_no, k.kitchen_nm
+  ) t
+  GROUP BY t.acc_no
+) ad ON ad.acc_no = am.acc_no
+WHERE am.acc_mst_type = 'ACMT_001'
+-- [AND am.acc_mst_state = $accMstState]  -- 상태 필터
+ORDER BY am.reg_dt DESC
+LIMIT :pagesize OFFSET :offset;
+
+SELECT
+  x.acc_no, x.store_no, s.store_nm
+, x.app_sales_amt          -- 먼키앱 판매정산금
+, x.kiosk_sales_amt         -- 키오스크 판매정산금
+, x.acc_pay_fee             -- 결제수수료
+, x.acc_order_fee           -- 주문수수료
+, x.acc_delivery_price      -- 무료배달수수료
+, (x.acc_store_cp_use_fee + x.acc_monki_cp_use_fee) AS acc_cp_use_fee  -- 쿠폰사용수수료
+, x.acc_save_mpoint_share_amt  -- 먼키캐시적립분담금
+, x.acc_mk_coupon_share_amt    -- 먼키쿠폰분담금
+, x.acc_allimtalk_amt          -- 알림톡사용금  ※실제 필드명은 acc_allim_amt(=acc_odat_005) 계열, 아래 참고
+, x.acc_adjust_amt             -- 조정금액
+, ad1.account_amt AS acc_sales_amt   -- 지급금액
+, ad2.account_amt AS acc_charge_amt  -- 청구금액
+, (ad1.account_amt - ad2.account_amt + x.acc_adjust_amt) AS acc_amt  -- 정산금액
+FROM (
+  SELECT aoi.acc_no, aoi.store_no
+  , sum(CASE WHEN aoi.acc_order_type='ACOT_001' AND aoi.order_account_type='ODAT_012' THEN aoi.account_amt ELSE 0 END) AS app_sales_amt
+  , sum(CASE WHEN aoi.acc_order_type='ACOT_002' AND aoi.order_account_type='ODAT_012' THEN aoi.account_amt ELSE 0 END) AS kiosk_sales_amt
+  , sum(CASE WHEN aoi.order_account_type='ODAT_001' THEN aoi.account_amt ELSE 0 END) AS acc_pay_fee
+  , sum(CASE WHEN aoi.order_account_type='ODAT_002' THEN aoi.account_amt ELSE 0 END) AS acc_order_fee
+  , sum(CASE WHEN aoi.order_account_type='ODAT_003' THEN aoi.account_amt ELSE 0 END) AS acc_delivery_price
+  , sum(CASE WHEN aoi.order_account_type='ODAT_005' THEN aoi.account_amt ELSE 0 END) AS acc_allimtalk_amt
+  , sum(CASE WHEN aoi.order_account_type='ODAT_009' THEN aoi.account_amt ELSE 0 END) AS acc_store_cp_use_fee
+  , sum(CASE WHEN aoi.order_account_type='ODAT_019' THEN aoi.account_amt ELSE 0 END) AS acc_monki_cp_use_fee
+  , sum(CASE WHEN aoi.order_account_type='ODAT_013' THEN aoi.account_amt ELSE 0 END) AS acc_save_mpoint_share_amt
+  , sum(CASE WHEN aoi.order_account_type='ODAT_014' THEN aoi.account_amt ELSE 0 END) AS acc_adjust_amt
+  , sum(CASE WHEN aoi.order_account_type='ODAT_015' THEN aoi.account_amt ELSE 0 END) AS acc_mk_coupon_share_amt
+  FROM sales.tb_accounts2_order_item aoi
+  JOIN public.tb_store s ON s.store_no = aoi.store_no
+  JOIN public.tb_kitchen k ON k.kitchen_no = s.kitchen_no
+  WHERE aoi.acc_no = :accNo AND s.kitchen_no = :kitchenNo
+  GROUP BY aoi.acc_no, aoi.store_no
+) x
+LEFT JOIN sales.tb_accounts2_deposit ad1 ON ad1.acc_no=x.acc_no AND ad1.store_no=x.store_no AND ad1.account_amt_type='OCAT_001'
+LEFT JOIN sales.tb_accounts2_deposit ad2 ON ad2.acc_no=x.acc_no AND ad2.store_no=x.store_no AND ad2.account_amt_type='OCAT_002'
+JOIN public.tb_store s ON s.store_no = x.store_no;
+
+SELECT
+  aoi.order_id
+, public.fn_get_codetext(o.order_type, 'order_type') AS order_type_txt
+, public.fn_get_codetext(o.pay_type, 'pay_type') AS pay_type_txt
+, aoi.kiosk_sales_amt, aoi.app_sales_amt, o.pay_point_amt
+, aoi.acc_sales_amt   -- 총거래금액
+, aoi.acc_pay_fee, aoi.acc_order_fee, aoi.acc_delivery_price
+, (aoi.acc_store_cp_use_fee + aoi.acc_monki_cp_use_fee) AS acc_cp_use_fee
+, aoi.acc_save_mpoint_share_amt, aoi.acc_mk_coupon_share_amt
+, aoi.acc_charge_amt
+, aoi.acc_sales_amt - aoi.acc_charge_amt AS acc_amt   -- 정산금액
+FROM (
+  SELECT order_id
+  , sum(CASE WHEN acc_order_type='ACOT_002' AND order_account_type='ODAT_012' THEN account_amt ELSE 0 END) AS kiosk_sales_amt
+  , sum(CASE WHEN acc_order_type='ACOT_001' AND order_account_type='ODAT_012' THEN account_amt ELSE 0 END) AS app_sales_amt
+  , sum(CASE WHEN order_account_type='ODAT_012' THEN account_amt ELSE 0 END) AS acc_sales_amt
+  , sum(CASE WHEN order_account_type='ODAT_001' THEN account_amt ELSE 0 END) AS acc_pay_fee
+  , sum(CASE WHEN order_account_type='ODAT_002' THEN account_amt ELSE 0 END) AS acc_order_fee
+  , sum(CASE WHEN order_account_type='ODAT_003' THEN account_amt ELSE 0 END) AS acc_delivery_price
+  , sum(CASE WHEN order_account_type='ODAT_009' THEN account_amt ELSE 0 END) AS acc_store_cp_use_fee
+  , sum(CASE WHEN order_account_type='ODAT_019' THEN account_amt ELSE 0 END) AS acc_monki_cp_use_fee
+  , sum(CASE WHEN order_account_type='ODAT_013' THEN account_amt ELSE 0 END) AS acc_save_mpoint_share_amt
+  , sum(CASE WHEN order_account_type='ODAT_015' THEN account_amt ELSE 0 END) AS acc_mk_coupon_share_amt
+  , sum(CASE WHEN account_amt_type='OCAT_002' THEN account_amt ELSE 0 END) AS acc_charge_amt
+  FROM sales.tb_accounts2_order_item
+  WHERE acc_no=:accNo AND store_no=:storeNo AND acc_order_type='ACOT_001'
+  GROUP BY order_id
+) aoi
+JOIN public.tb_order o ON o.order_id = aoi.order_id
+-- UNION ALL
+-- SELECT
+--   kaoi.order_id, '키오스크', '키오스크'
+-- , kaoi.kiosk_sales_amt, kaoi.app_sales_amt, 0
+-- , kaoi.acc_sales_amt, kaoi.acc_pay_fee, kaoi.acc_order_fee, kaoi.acc_delivery_price
+-- , (kaoi.acc_store_cp_use_fee + kaoi.acc_monki_cp_use_fee)
+-- , kaoi.acc_save_mpoint_share_amt, kaoi.acc_mk_coupon_share_amt
+-- , kaoi.acc_charge_amt
+-- , kaoi.acc_sales_amt - kaoi.acc_charge_amt
+-- FROM ( /* 동일 구조, WHERE acc_order_type='ACOT_002' */ ) kaoi
+-- ;
