@@ -8,6 +8,11 @@ alter table admin drop column phone_no;
 create unique index uix_admin_email on admin (email);
 alter table admin alter column admin_id set default (uuid());
 
+alter table admin add column email varchar(100) not null;
+alter table admin add column password varchar(255) not null;
+alter table admin add column permissions json not null DEFAULT (JSON_OBJECT());
+alter table admin drop column phone_no;
+
 create table audit_logs
 (
     audit_log_id         varchar(36) collate utf8mb4_bin                                  not null default (uuid())
