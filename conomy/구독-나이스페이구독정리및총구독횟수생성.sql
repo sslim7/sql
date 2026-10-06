@@ -33,3 +33,5 @@ UPDATE subs_order_billing sb
 
 SELECT (SELECT COUNT(*) FROM subs_orders WHERE is_active=1) so_active,
        (SELECT COUNT(*) FROM subs_order_billing WHERE is_active=1) sob_active;
+
+
