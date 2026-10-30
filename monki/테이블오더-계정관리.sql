@@ -1,3 +1,7 @@
+-- 로그인계정 생성
+INSERT INTO public.tb_user_store (store_no, user_id, user_pass, user_phone, user_email, company_number, reg_dt, use_yn, company_type, user_nm, login_yn, upd_dt, store_user_grade, pos_proxy_login_yn, pos_proxy_upd_dt)
+VALUES (642, 'max',
+        encode(digest('kitiwit7!', 'sha256'), 'hex'), '40c68921874e75d3b67aec21bdda3b0e', '3cf81545147d011967171ca433593470fd89f831b53b0a998066a1b3cd4d42cb', null, EXTRACT(EPOCH FROM now())::bigint, true, 'ST_009', '강해성', false, EXTRACT(EPOCH FROM now())::bigint, 'STUG_101', false, 1769154923);
 
 -- 사장님사이트
   - UT_201: 매장 직접 운영자 (먼키 매장 사장님) → tb_user_store
